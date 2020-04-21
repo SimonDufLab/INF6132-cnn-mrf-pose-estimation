@@ -1,8 +1,9 @@
 import pytorch_lightning as pl
 from torch import nn
 import torch
+import torchvision
 from torch.nn import functional as F
-from data import load_train_data, load_test_data, to_dataloader
+from data import load_train_data, load_test_data, to_dataloader, viz_sample
 import config as cfg
 import utils
 
@@ -12,8 +13,7 @@ class PoseDetector(pl.LightningModule):
     def __init__(self):
         super(PoseDetector, self).__init__()
 
-        self.model_size = 1  # general size of model - higher means more filters
-                             # and more training time
+        self.model_size = cfg.MODEL_SIZE
         self.output_shape = (60, 90, 10)
 
         # Layers for full resolution image
@@ -118,7 +118,7 @@ class PoseDetector(pl.LightningModule):
     def train_dataloader(self):
         # Load data and create a DataLoader
         X_train, y_train = load_train_data()
-        self.train_dataloader = to_dataloader(X_train[:30], y_train[:30], batch_size=cfg.BATCH_SIZE)
+        self.train_dataloader = to_dataloader(X_train, y_train, batch_size=cfg.BATCH_SIZE)
         return self.train_dataloader
 
     def test_dataloader(self):
@@ -151,7 +151,7 @@ class PoseDetector(pl.LightningModule):
         #loss = -torch.sum(targets * torch.log(preds), 1)
         #loss = torch.mean(loss)
         #loss = tf.nn.softmax_cross_entropy_with_logits(targets, preds)
-        loss_fn = nn.BCELoss()
+        loss_fn = nn.MSELoss()
         loss = loss_fn(preds, targets)
         return loss
 
@@ -178,12 +178,27 @@ class PoseDetector(pl.LightningModule):
 
     def on_epoch_end(self):
         # Test after each epoch on sample image
-        image = self.train_dataloader.dataset[0][0]
-        target = self.train_dataloader.dataset[0][1]
-        from data import viz_sample
-        viz_sample(image.permute(1, 2, 0), target.permute(1, 2, 0))
-        preds = self.forward(image.unsqueeze(0)).squeeze().permute(1, 2, 0).detach()
-        viz_sample(image.permute(1, 2, 0), preds)
+        images, targets = next(iter(self.train_dataloader))
+
+        """
+        targets = utils.resize_batch(targets, images.shape[2], images.shape[3])
+        for i in range(10):
+            train_images = images[:, 0, :, :].unsqueeze(1) + targets[:, i, :, :].unsqueeze(1)
+        grid = torchvision.utils.make_grid(train_images)
+        torchvision.utils.save_image(grid, "train.png")
+        preds = utils.resize_batch(self.saved_preds, images.shape[2], images.shape[3])
+        preds = torch.nn.Softmax2d()(preds)
+        for i in range(10):
+            preds_images = images[:, 0, :, :].unsqueeze(1) + preds[:, i, :, :].unsqueeze(1) * 2
+        grid = torchvision.utils.make_grid(preds_images)
+        torchvision.utils.save_image(grid, "preds.png")
+        """
+
+        for i in range(images.shape[0]):
+            image, target = images[i], targets[i]
+            viz_sample(image.permute(1, 2, 0), target.permute(1, 2, 0), f"{self.current_epoch}_train_{i}")
+            preds = self.forward(image.unsqueeze(0)).squeeze().permute(1, 2, 0).detach()
+            viz_sample(image.permute(1, 2, 0), preds, f"{self.current_epoch}_preds_{i}")
 
 
 if __name__ == "__main__":

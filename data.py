@@ -53,25 +53,27 @@ def load_data(path=data_folder):
     return X_train, y_train, X_test, y_test
 
 
-def viz_sample(image, heatmap):
+def viz_sample(image, heatmap, name):
     # Vizualise single image and heatmap target using
     # matplotlib
+    image = resize(image, (60, 90))
     plt.imshow(image)
     joint_colors = ("red", "green", "blue", "yellow", "purple",
                     "orange", "black", "white", "cyan", "darkblue")
 
+    test = image
     # Iterate on the heatmap for each joint
     for i in range(heatmap.shape[2]):
         cs = [(0, 0, 0, 0), joint_colors[i]]
         color_map = colors.LinearSegmentedColormap.from_list("cmap", cs)
 
         heatmap_data = heatmap[:, :, i]
-        heatmap_data = resize(heatmap_data, (480, 720))
-        
+        #heatmap_data = resize(heatmap_data, (480, 720))
+
         # Mask image to show only joint location
-        masked_heatmap = np.ma.masked_where(heatmap_data < 0.01, heatmap_data)
-        plt.imshow(masked_heatmap, cmap=color_map)
-    plt.show()
+        heatmap_data[heatmap_data < 0.01] = 0
+        plt.imshow(heatmap_data, cmap=color_map)
+    plt.savefig("outputs/" + name + ".png")
 
 
 def main():
