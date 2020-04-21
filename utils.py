@@ -1,9 +1,9 @@
 import torch
 import torchvision
 from torchvision import transforms
+import os
 
 
-# TODO: FIX for more than 3 channels
 def resize_batch(input_tensors, h, w):
     # Resize a batch of imges using torchvision transforms
     # We need to convert Tensors to PIL Images and back
@@ -28,3 +28,9 @@ def resize_batch(input_tensors, h, w):
         else:
             final_output = torch.cat((final_output, multi_chan_img), 0)
     return final_output
+
+
+def mkdir(path, path_is_file=False):
+    if path_is_file:
+        path = os.path.dirname(path)
+    os.makedirs(path, exist_ok=True)

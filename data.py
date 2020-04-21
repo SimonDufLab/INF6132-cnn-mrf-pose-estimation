@@ -4,6 +4,7 @@ from skimage.transform import resize
 import torch
 from torch.utils import data
 from matplotlib import colors
+from utils import mkdir
 
 
 # Folder containing 4 .npz files for training and test set
@@ -53,17 +54,16 @@ def load_data(path=data_folder):
     return X_train, y_train, X_test, y_test
 
 
-def viz_sample(image, heatmap, name):
+def viz_sample(image, heatmap, name, save_dir):
     # Vizualise single image and heatmap target using
     # matplotlib
     image = resize(image, (60, 90))
-    plt.imshow(image)
     joint_colors = ("red", "green", "blue", "yellow", "purple",
                     "orange", "black", "white", "cyan", "darkblue")
 
-    test = image
     # Iterate on the heatmap for each joint
     for i in range(heatmap.shape[2]):
+        plt.imshow(image)
         cs = [(0, 0, 0, 0), joint_colors[i]]
         color_map = colors.LinearSegmentedColormap.from_list("cmap", cs)
 
@@ -73,7 +73,10 @@ def viz_sample(image, heatmap, name):
         # Mask image to show only joint location
         heatmap_data[heatmap_data < 0.01] = 0
         plt.imshow(heatmap_data, cmap=color_map)
-    plt.savefig("outputs/" + name + ".png")
+
+        save_path = f"{save_dir}/images/joint_{i}/{name}.png"
+        mkdir(save_path, path_is_file=True)
+        plt.savefig(save_path)
 
 
 def main():

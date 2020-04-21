@@ -177,32 +177,20 @@ class PoseDetector(pl.LightningModule):
         return {'avg_test_loss': avg_loss, 'log': tensorboard_logs}
 
     def on_epoch_end(self):
-        # Test after each epoch on sample image
+        # Test after each epoch on sample image and save image to output dir
         images, targets = next(iter(self.train_dataloader))
+        preds = self.forward(images).detach()
 
-        """
-        targets = utils.resize_batch(targets, images.shape[2], images.shape[3])
-        for i in range(10):
-            train_images = images[:, 0, :, :].unsqueeze(1) + targets[:, i, :, :].unsqueeze(1)
-        grid = torchvision.utils.make_grid(train_images)
-        torchvision.utils.save_image(grid, "train.png")
-        preds = utils.resize_batch(self.saved_preds, images.shape[2], images.shape[3])
-        preds = torch.nn.Softmax2d()(preds)
-        for i in range(10):
-            preds_images = images[:, 0, :, :].unsqueeze(1) + preds[:, i, :, :].unsqueeze(1) * 2
-        grid = torchvision.utils.make_grid(preds_images)
-        torchvision.utils.save_image(grid, "preds.png")
-        """
+        save_folder = self.logger.log_dir
 
-        for i in range(images.shape[0]):
-            image, target = images[i], targets[i]
-            viz_sample(image.permute(1, 2, 0), target.permute(1, 2, 0), f"{self.current_epoch}_train_{i}")
-            preds = self.forward(image.unsqueeze(0)).squeeze().permute(1, 2, 0).detach()
-            viz_sample(image.permute(1, 2, 0), preds, f"{self.current_epoch}_preds_{i}")
+        for i in range(2):
+            image, target, pred = images[i], targets[i], preds[i]
+            viz_sample(image.permute(1, 2, 0), target.permute(1, 2, 0), f"{self.current_epoch}_train_{i}", save_dir=save_folder)
+            viz_sample(image.permute(1, 2, 0), pred.permute(1, 2, 0), f"{self.current_epoch}_preds_{i}", save_dir=save_folder)
 
 
 if __name__ == "__main__":
     # Train model
     model = PoseDetector()
-    trainer = pl.Trainer()
+    trainer = pl.Trainer(max_epochs=cfg.EPOCHS)
     trainer.fit(model)
