@@ -136,8 +136,9 @@ class PoseDetector(pl.LightningModule):
         # TODO: find loss function that works
 
         # Use Softmax2d?
-        softmax = torch.nn.Softmax2d()
-        preds = softmax(preds)
+        #softmax = torch.nn.Softmax2d()
+        #preds = softmax(preds)
+        #print(f"max preds: {preds.max()} | target max: {targets.max()}")
 
         # Reshape heatmaps?
         #preds = preds.view(-1, self.output_shape[2], self.output_shape[0]*self.output_shape[1])
@@ -150,8 +151,9 @@ class PoseDetector(pl.LightningModule):
         #preds = F.softmax(preds, dim=2)
         #loss = -torch.sum(targets * torch.log(preds), 1)
         #loss = torch.mean(loss)
-        #loss = tf.nn.softmax_cross_entropy_with_logits(targets, preds)
         loss_fn = nn.MSELoss()
+        #loss_fn = nn.BCEWithLogitsLoss()
+        #loss_fn = nn.BCELoss()
         loss = loss_fn(preds, targets)
         return loss
 
@@ -179,18 +181,18 @@ class PoseDetector(pl.LightningModule):
     def on_epoch_end(self):
         # Test after each epoch on sample image and save image to output dir
         images, targets = next(iter(self.train_dataloader))
-        preds = self.forward(images).detach()
+        preds = self.forward(images).detach() * 100
 
         save_folder = self.logger.log_dir
 
         for i in range(2):
             image, target, pred = images[i], targets[i], preds[i]
-            viz_sample(image.permute(1, 2, 0), target.permute(1, 2, 0), f"{self.current_epoch}_train_{i}", save_dir=save_folder)
-            viz_sample(image.permute(1, 2, 0), pred.permute(1, 2, 0), f"{self.current_epoch}_preds_{i}", save_dir=save_folder)
+            viz_sample(image.permute(1, 2, 0), target.permute(1, 2, 0), f"epoch_{self.current_epoch}_sample_{i}_train", save_dir=save_folder)
+            viz_sample(image.permute(1, 2, 0), pred.permute(1, 2, 0), f"epoch_{self.current_epoch}_sample_{i}_preds", save_dir=save_folder)
 
 
 if __name__ == "__main__":
     # Train model
     model = PoseDetector()
-    trainer = pl.Trainer(max_epochs=cfg.EPOCHS)
+    trainer = pl.Trainer(max_epochs=cfg.EPOCHS, row_log_interval=1)
     trainer.fit(model)

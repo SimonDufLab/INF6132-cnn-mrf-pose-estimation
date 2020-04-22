@@ -19,7 +19,7 @@ def to_dataloader(X, y, batch_size=10):
     X, y = X.permute(0, 3, 1, 2), y.permute(0, 3, 1, 2)
 
     dataset = data.TensorDataset(X, y)
-    dataloader = data.DataLoader(dataset, batch_size=batch_size)
+    dataloader = data.DataLoader(dataset, batch_size=batch_size, shuffle=True)
 
     return dataloader
 
@@ -72,6 +72,7 @@ def viz_sample(image, heatmap, name, save_dir):
 
         # Mask image to show only joint location
         heatmap_data[heatmap_data < 0.01] = 0
+        heatmap_data = heatmap_data / np.max(heatmap_data.numpy())
         plt.imshow(heatmap_data, cmap=color_map)
 
         save_path = f"{save_dir}/images/joint_{i}/{name}.png"
