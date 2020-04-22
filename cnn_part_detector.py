@@ -121,6 +121,13 @@ class PoseDetector(pl.LightningModule):
         self.train_dataloader = to_dataloader(X_train, y_train, batch_size=cfg.BATCH_SIZE)
         return self.train_dataloader
 
+    # Same validation data as test data for now
+    def val_dataloader(self):
+        # Load data and create a DataLoader
+        X_val, y_val = load_test_data()
+        val_dataloader = to_dataloader(X_val, y_val[:, :, :, 0:self.output_shape[2]], batch_size=BATCH_SIZE)
+        return val_dataloader
+
     def test_dataloader(self):
         # Load data and create a DataLoader
         X_test, y_test = load_test_data()
@@ -164,6 +171,19 @@ class PoseDetector(pl.LightningModule):
         loss = self.loss(preds, targets)
         logs = {"train_loss": loss}
         return {"loss": loss, "log": logs}
+
+    def validation_step(self, batch, batch_idx):
+        # Forward pass of the validation
+        images, targets = batch
+        preds = self.forward(images)
+        loss = self.loss(preds, targets)
+        return {'val_loss': loss}
+
+    def validation_end(self, outputs):
+        # Log validation loss to tensorboard
+        avg_loss = torch.stack([x['val_loss'] for x in outputs]).mean()
+        tensorboard_logs = {'val_loss': avg_loss}
+        return {'val_loss': avg_loss, 'log': tensorboard_logs}
 
     def test_step(self, val_batch, batch_idx):
         # Forward pass of the testing
