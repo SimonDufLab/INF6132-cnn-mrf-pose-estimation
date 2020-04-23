@@ -1,0 +1,20 @@
+# Byte-compiled / optimized / DLL files
+.DS_Store
+.env
+.flaskenv
+*.pyc
+*.pyo
+env/
+env*
+dist/
+build/
+*.egg
+*.egg-info/
+_mailinglist
+.tox/
+.cache/
+/data
+.data/
+.pytest_cache/
+:quit
+.idea/
