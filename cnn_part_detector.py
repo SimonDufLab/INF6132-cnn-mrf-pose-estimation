@@ -8,6 +8,27 @@ import config as cfg
 import utils
 
 
+class JointsMSELoss(nn.Module):
+    def __init__(self, use_target_weight=False):
+        super(JointsMSELoss, self).__init__()
+        self.criterion = nn.MSELoss(reduction='mean')
+        self.use_target_weight = use_target_weight
+
+    def forward(self, output, target):
+        batch_size = output.size(0)
+        num_joints = output.size(1)
+        heatmaps_pred = output.reshape((batch_size, num_joints, -1)).split(1, 1)
+        heatmaps_gt = target.reshape((batch_size, num_joints, -1)).split(1, 1)
+        loss = 0
+
+        for idx in range(num_joints):
+            heatmap_pred = heatmaps_pred[idx].squeeze()
+            heatmap_gt = heatmaps_gt[idx].squeeze()
+            loss += 0.5 * self.criterion(heatmap_pred, heatmap_gt)
+
+        return loss / num_joints
+
+
 class PoseDetector(pl.LightningModule):
 
     def __init__(self):
@@ -56,7 +77,7 @@ class PoseDetector(pl.LightningModule):
         self.halfres_layer3 = nn.Sequential(
             nn.Conv2d(self.model_size * 2, self.model_size * 4, 9, stride=1, padding=4),
             nn.BatchNorm2d(self.model_size * 4),
-            nn.MaxPool2d(2, stride=2),
+            #nn.MaxPool2d(2, stride=1),
             nn.ReLU()
         )
 
@@ -71,14 +92,14 @@ class PoseDetector(pl.LightningModule):
         self.quarterres_layer2 = nn.Sequential(
             nn.Conv2d(self.model_size * 1, self.model_size * 2, 5, stride=1, padding=2),
             nn.BatchNorm2d(self.model_size * 2),
-            nn.MaxPool2d(2, stride=2),
+            #nn.MaxPool2d(2, stride=1),
             nn.ReLU()
         )
 
         self.quarterres_layer3 = nn.Sequential(
             nn.Conv2d(self.model_size * 2, self.model_size * 4, 9, stride=1, padding=4),
             nn.BatchNorm2d(self.model_size * 4),
-            nn.MaxPool2d(2, stride=2),
+            #nn.MaxPool2d(2, stride=1),
             nn.ReLU()
         )
 
@@ -92,8 +113,8 @@ class PoseDetector(pl.LightningModule):
 
     def forward(self, inputs):
         fullres = inputs
-        halfres = utils.resize_batch(inputs, inputs.shape[2] // 2, inputs.shape[3] // 2)
-        quarterres = utils.resize_batch(inputs, inputs.shape[2] // 4, inputs.shape[3] // 4)
+        halfres = nn.AvgPool2d(2, stride=2, padding=0)(fullres)
+        quarterres = nn.AvgPool2d(2, stride=2, padding=0)(halfres)
 
         fullres = self.fullres_layer1(fullres)
         fullres = self.fullres_layer2(fullres)
@@ -102,12 +123,10 @@ class PoseDetector(pl.LightningModule):
         halfres = self.halfres_layer1(halfres)
         halfres = self.halfres_layer2(halfres)
         halfres = self.halfres_layer3(halfres)
-        halfres = utils.resize_batch(halfres, self.output_shape[0], self.output_shape[1])
 
         quarterres = self.quarterres_layer1(quarterres)
         quarterres = self.quarterres_layer2(quarterres)
         quarterres = self.quarterres_layer3(quarterres)
-        quarterres = utils.resize_batch(quarterres, self.output_shape[0], self.output_shape[1])
 
         output = fullres + halfres + quarterres
         output /= 3  # Take mean of sum
@@ -125,7 +144,7 @@ class PoseDetector(pl.LightningModule):
     def val_dataloader(self):
         # Load data and create a DataLoader
         X_val, y_val = load_test_data()
-        val_dataloader = to_dataloader(X_val, y_val[:, :, :, 0:self.output_shape[2]], batch_size=BATCH_SIZE)
+        val_dataloader = to_dataloader(X_val, y_val[:, :, :, 0:self.output_shape[2]], batch_size=cfg.BATCH_SIZE)
         return val_dataloader
 
     def test_dataloader(self):
@@ -158,7 +177,7 @@ class PoseDetector(pl.LightningModule):
         #preds = F.softmax(preds, dim=2)
         #loss = -torch.sum(targets * torch.log(preds), 1)
         #loss = torch.mean(loss)
-        loss_fn = nn.MSELoss()
+        loss_fn = JointsMSELoss()
         #loss_fn = nn.BCEWithLogitsLoss()
         #loss_fn = nn.BCELoss()
         loss = loss_fn(preds, targets)
