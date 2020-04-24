@@ -77,7 +77,7 @@ class PoseDetector(pl.LightningModule):
         self.halfres_layer3 = nn.Sequential(
             nn.Conv2d(self.model_size * 2, self.model_size * 4, 9, stride=1, padding=4),
             nn.BatchNorm2d(self.model_size * 4),
-            #nn.MaxPool2d(2, stride=1),
+            nn.MaxPool2d(2, stride=2),
             nn.ReLU()
         )
 
@@ -92,14 +92,14 @@ class PoseDetector(pl.LightningModule):
         self.quarterres_layer2 = nn.Sequential(
             nn.Conv2d(self.model_size * 1, self.model_size * 2, 5, stride=1, padding=2),
             nn.BatchNorm2d(self.model_size * 2),
-            #nn.MaxPool2d(2, stride=1),
+            nn.MaxPool2d(2, stride=2 , padding =1), #Adding padding so upsample dimension fit
             nn.ReLU()
         )
 
         self.quarterres_layer3 = nn.Sequential(
             nn.Conv2d(self.model_size * 2, self.model_size * 4, 9, stride=1, padding=4),
             nn.BatchNorm2d(self.model_size * 4),
-            #nn.MaxPool2d(2, stride=1),
+            nn.MaxPool2d(2, stride=2),
             nn.ReLU()
         )
 
@@ -111,10 +111,19 @@ class PoseDetector(pl.LightningModule):
             nn.Conv2d(self.model_size * 4, self.output_shape[2], 9, stride=1, padding=4)
         )
 
+        self.conv_downsample = nn.Sequential(
+            nn.Conv2d(3, 3, 3, stride=2, padding=1),
+            nn.Conv2d(3, 3, 1, stride=1, padding=0)
+        )
+
+        self.conv_upsample = nn.ConvTranspose2d(self.model_size * 4, self.model_size * 4, 3, stride=2, padding=1)
+
     def forward(self, inputs):
         fullres = inputs
-        halfres = nn.AvgPool2d(2, stride=2, padding=0)(fullres)
-        quarterres = nn.AvgPool2d(2, stride=2, padding=0)(halfres)
+        #halfres = nn.AvgPool2d(2, stride=2, padding=0)(fullres)
+        #quarterres = nn.AvgPool2d(2, stride=2, padding=0)(halfres)
+        halfres = self.conv_downsample(fullres)
+        quarterres = self.conv_downsample(halfres)
 
         fullres = self.fullres_layer1(fullres)
         fullres = self.fullres_layer2(fullres)
@@ -123,10 +132,15 @@ class PoseDetector(pl.LightningModule):
         halfres = self.halfres_layer1(halfres)
         halfres = self.halfres_layer2(halfres)
         halfres = self.halfres_layer3(halfres)
+        halfres_size = halfres.size()
+        halfres = self.conv_upsample(halfres, output_size=fullres.size())
 
         quarterres = self.quarterres_layer1(quarterres)
         quarterres = self.quarterres_layer2(quarterres)
         quarterres = self.quarterres_layer3(quarterres)
+        quarterres = self.conv_upsample(quarterres, output_size=halfres_size)
+        quarterres = nn.Conv2d(self.model_size * 4, self.model_size * 4, 1, stride=1, padding=0)(quarterres)
+        quarterres = self.conv_upsample(quarterres, output_size=fullres.size())
 
         output = fullres + halfres + quarterres
         output /= 3  # Take mean of sum
