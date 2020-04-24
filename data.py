@@ -10,6 +10,16 @@ from utils import mkdir
 # Folder containing 4 .npz files for training and test set
 data_folder = "./data/"
 
+# List of the joints in the order of the channels. For example, channel 1 of
+# the heatmap will represent the left_shoulder, channel 2 will be the left
+# elbow, etc.
+joint_ids = ['lsho', 'lelb', 'lwri', 'rsho', 'relb', 'rwri',
+             'lhip', 'rhip', 'nose', 'torso']
+
+# Colors of the joints in the same order when visualising the heatmaps
+joint_colors = ("red", "green", "blue", "yellow", "purple",
+                "orange", "black", "white", "cyan", "darkblue")
+
 
 def to_dataloader(X, y, batch_size=10):
     # Numpy arrays to pytorch DataLoader
@@ -54,28 +64,27 @@ def load_data(path=data_folder):
     return X_train, y_train, X_test, y_test
 
 
-def viz_sample(image, heatmap, name=None, save_dir=None, permute = False):
-    #Need permutation?
-    if permute :
-        image = image.permute(1,2,0)
-        heatmap = heatmap.permute(1,2,0)
-    
+def viz_sample(image, heatmap, name=None, save_dir=None, permute=False):
+    global joint_colors
+
+    # Need permutation?
+    if permute:
+        image = image.permute(1, 2, 0)
+        heatmap = heatmap.permute(1, 2, 0)
+
     # Vizualise single image and heatmap target using
     # matplotlib
     image = resize(image, (60, 90, 3))
-    joint_colors = ("red", "green", "blue", "yellow", "purple",
-                    "orange", "black", "white", "cyan", "darkblue")
 
     # Iterate on the heatmap for each joint
     plt.imshow(image)
 
     for i in range(heatmap.shape[2]):
-        
         cs = [(0, 0, 0, 0), joint_colors[i]]
         color_map = colors.LinearSegmentedColormap.from_list("cmap", cs)
 
         heatmap_data = heatmap[:, :, i]
-        #heatmap_data = resize(heatmap_data, (480, 720))
+        # heatmap_data = resize(heatmap_data, (480, 720))
 
         # Mask image to show only joint location
         heatmap_data[heatmap_data < 0.01] = 0
@@ -87,7 +96,7 @@ def viz_sample(image, heatmap, name=None, save_dir=None, permute = False):
             save_path = f"{save_dir}/images/joint_{i}/{name}.png"
             mkdir(save_path, path_is_file=True)
             plt.savefig(save_path)
-    plt.title("Image with targets on top") #I love title
+    plt.title("Image with targets on top")  # I love title
     plt.show()
 
 
@@ -99,10 +108,10 @@ def main():
     image_number = 10
 
     # Vizualise first sample of train dataset
-    viz_sample(train.dataset[image_number][0], train.dataset[image_number][1], permute = True)
+    viz_sample(train.dataset[image_number][0], train.dataset[image_number][1], permute=True)
 
     # Vizualise first sample of test dataset
-    viz_sample(test.dataset[image_number][0], test.dataset[image_number][1], permute = True)
+    viz_sample(test.dataset[image_number][0], test.dataset[image_number][1], permute=True)
 
 
 if __name__ == "__main__":
