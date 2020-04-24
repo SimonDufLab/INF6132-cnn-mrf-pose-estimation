@@ -28,6 +28,27 @@ class JointsMSELoss(nn.Module):
 
         return loss / num_joints
 
+class CrossELoss(nn.Module):
+    def __init__(self, use_target_weight=False):
+        super(CrossELoss, self).__init__()
+
+    def forward(self, output, target):
+        batch_size = output.size(0)
+        num_joints = output.size(1)
+        assert num_joints == 10
+        heatmaps_pred = output.reshape((batch_size, num_joints, -1)).split(1, 1)
+        heatmaps_gt = target.reshape((batch_size, num_joints, -1)).split(1, 1)
+        loss = 0
+
+        for idx in range(num_joints):
+            heatmap_pred = heatmaps_pred[idx].squeeze()
+            heatmap_pred = nn.functional.log_softmax(heatmap_pred, dim=1)
+            heatmap_gt = heatmaps_gt[idx].squeeze()
+
+            loss += nn.functional.binary_cross_entropy_with_logits(heatmap_pred, heatmap_gt)
+
+        return loss / num_joints
+
 
 class PoseDetector(pl.LightningModule):
 
@@ -191,7 +212,9 @@ class PoseDetector(pl.LightningModule):
         #preds = F.softmax(preds, dim=2)
         #loss = -torch.sum(targets * torch.log(preds), 1)
         #loss = torch.mean(loss)
-        loss_fn = JointsMSELoss()
+        #loss_fn = JointsMSELoss()
+
+        loss_fn = CrossELoss()
         #loss_fn = nn.BCEWithLogitsLoss()
         #loss_fn = nn.BCELoss()
         loss = loss_fn(preds, targets)
