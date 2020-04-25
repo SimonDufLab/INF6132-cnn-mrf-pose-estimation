@@ -8,26 +8,6 @@ import config as cfg
 import utils
 
 
-class JointsMSELoss(nn.Module):
-    def __init__(self, use_target_weight=False):
-        super(JointsMSELoss, self).__init__()
-        self.criterion = nn.MSELoss(reduction='mean')
-        self.use_target_weight = use_target_weight
-
-    def forward(self, output, target):
-        batch_size = output.size(0)
-        num_joints = output.size(1)
-        heatmaps_pred = output.reshape((batch_size, num_joints, -1)).split(1, 1)
-        heatmaps_gt = target.reshape((batch_size, num_joints, -1)).split(1, 1)
-        loss = 0
-
-        for idx in range(num_joints):
-            heatmap_pred = heatmaps_pred[idx].squeeze()
-            heatmap_gt = heatmaps_gt[idx].squeeze()
-            loss += 0.5 * self.criterion(heatmap_pred, heatmap_gt)
-
-        return loss / num_joints
-
 class CrossELoss(nn.Module):
     def __init__(self, use_target_weight=False):
         super(CrossELoss, self).__init__()
@@ -141,8 +121,6 @@ class PoseDetector(pl.LightningModule):
 
     def forward(self, inputs):
         fullres = inputs
-        #halfres = nn.AvgPool2d(2, stride=2, padding=0)(fullres)
-        #quarterres = nn.AvgPool2d(2, stride=2, padding=0)(halfres)
         halfres = self.conv_downsample(fullres)
         quarterres = self.conv_downsample(halfres)
 
@@ -194,29 +172,7 @@ class PoseDetector(pl.LightningModule):
         return optimizer
 
     def loss(self, preds, targets):
-        # TODO: find loss function that works
-
-        # Use Softmax2d?
-        #softmax = torch.nn.Softmax2d()
-        #preds = softmax(preds)
-        #print(f"max preds: {preds.max()} | target max: {targets.max()}")
-
-        # Reshape heatmaps?
-        #preds = preds.view(-1, self.output_shape[2], self.output_shape[0]*self.output_shape[1])
-        #targets = targets.view(-1, self.output_shape[2], self.output_shape[0]*self.output_shape[1])
-
-        # MULTIPLE TRIES, CAN IGNORE
-        #loss = F.nll_loss(preds, targets)
-        # pytorch function to replicate tensorflow's tf.nn.softmax_cross_entropy_with_logits
-        #loss = torch.sum(- targets * F.log_softmax(preds, -1), -1)
-        #preds = F.softmax(preds, dim=2)
-        #loss = -torch.sum(targets * torch.log(preds), 1)
-        #loss = torch.mean(loss)
-        #loss_fn = JointsMSELoss()
-
         loss_fn = CrossELoss()
-        #loss_fn = nn.BCEWithLogitsLoss()
-        #loss_fn = nn.BCELoss()
         loss = loss_fn(preds, targets)
         return loss
 
