@@ -340,7 +340,7 @@ class PoseDetector(pl.LightningModule):
     def on_epoch_end(self):
         # Test after each epoch on sample image and save image to output dir
         images, targets = next(iter(self.train_dataloader))
-        preds = self.forward(images).detach()[1]
+        preds = self.forward(images)[1].detach()
         preds = torch.stack([F.softmax(preds[i,:,:,:], dim=1) for i in range(preds.shape[0])]) * 100
 
         save_folder = self.logger.log_dir
