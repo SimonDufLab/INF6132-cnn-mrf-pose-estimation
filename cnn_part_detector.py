@@ -3,9 +3,11 @@ from torch import nn
 import torch
 import torchvision
 from torch.nn import functional as F
+from torch.autograd import Variable
 from data import load_train_data, load_test_data, to_dataloader, viz_sample
 import config as cfg
 import utils
+import numpy as np
 
 
 class JointsMSELoss(nn.Module):
@@ -52,85 +54,115 @@ class CrossELoss(nn.Module):
 
 class PoseDetector(pl.LightningModule):
 
-    def __init__(self):
+    def __init__(self, use_spatial_model=True):
         super(PoseDetector, self).__init__()
 
         self.model_size = cfg.MODEL_SIZE
         self.output_shape = (60, 90, 10)
+        self.use_spatial_model = use_spatial_model
+
+        # Model joints:
+        self.joint_names = ['lsho', 'lelb', 'lwri', 'rsho', 'relb', 'rwri', 'lhip', 'rhip', 'nose', 'torso']
+        self.joint_dependence = {}
+        ## Assuming there is co-dependence between EVERY joint pairs
+        for joint in self.joint_names:
+            self.joint_dependence[joint] = [joint_cond for joint_cond in self.joint_names if joint_cond != joint]
+
+        ## Initializing pairwise energies and bias between Joints
+        self.pairwise_energies, self.pairwise_biases = {}, {}
+        for joint in self.joint_names:#[:n_joints]:
+            for cond_joint in self.joint_dependence[joint]:
+                #TODO : manage dynamic sizing (in-place of 120,180)
+                ## TODO : Check if need to be manually placed on device
+                joint_key = joint + '_' + cond_joint
+                self.pairwise_energies[joint_key] = torch.ones([1,119,179,1], dtype=torch.float32)/(119*179)
+                self.pairwise_biases[joint_key] = torch.ones([1,60,90,1], dtype=torch.float32)/(60*90)
+
 
         # Layers for full resolution image
         self.fullres_layer1 = nn.Sequential(
             nn.Conv2d(3, self.model_size * 1, 5, stride=1, padding=2),
+            nn.ReLU(),
             nn.BatchNorm2d(self.model_size * 1),
-            nn.MaxPool2d(2, stride=2),
-            nn.ReLU()
+            nn.MaxPool2d(2, stride=2)
+            #nn.ReLU()
         )
 
         self.fullres_layer2 = nn.Sequential(
             nn.Conv2d(self.model_size * 1, self.model_size * 2, 5, stride=1, padding=2),
+            nn.ReLU(),
             nn.BatchNorm2d(self.model_size * 2),
-            nn.MaxPool2d(2, stride=2),
-            nn.ReLU()
+            nn.MaxPool2d(2, stride=2)
+            #nn.ReLU()
         )
 
         self.fullres_layer3 = nn.Sequential(
             nn.Conv2d(self.model_size * 2, self.model_size * 4, 9, stride=1, padding=4),
+            nn.ReLU(),
             nn.BatchNorm2d(self.model_size * 4),
-            nn.MaxPool2d(2, stride=2),
-            nn.ReLU()
+            nn.MaxPool2d(2, stride=2)
+            #nn.ReLU()
         )
 
         # Layers for half resolution image
         self.halfres_layer1 = nn.Sequential(
             nn.Conv2d(3, self.model_size * 1, 5, stride=1, padding=2),
+            nn.ReLU(),
             nn.BatchNorm2d(self.model_size * 1),
-            nn.MaxPool2d(2, stride=2),
-            nn.ReLU()
+            nn.MaxPool2d(2, stride=2)
+            #nn.ReLU()
         )
 
         self.halfres_layer2 = nn.Sequential(
             nn.Conv2d(self.model_size * 1, self.model_size * 2, 5, stride=1, padding=2),
+            nn.ReLU(),
             nn.BatchNorm2d(self.model_size * 2),
-            nn.MaxPool2d(2, stride=2),
-            nn.ReLU()
+            nn.MaxPool2d(2, stride=2)
+            #nn.ReLU()
         )
 
         self.halfres_layer3 = nn.Sequential(
             nn.Conv2d(self.model_size * 2, self.model_size * 4, 9, stride=1, padding=4),
+            nn.ReLU(),
             nn.BatchNorm2d(self.model_size * 4),
-            nn.MaxPool2d(2, stride=2),
-            nn.ReLU()
+            nn.MaxPool2d(2, stride=2)
+            #nn.ReLU()
         )
 
         # Layers for quarter resolution image
         self.quarterres_layer1 = nn.Sequential(
             nn.Conv2d(3, self.model_size * 1, 5, stride=1, padding=2),
+            nn.ReLU(),
             nn.BatchNorm2d(self.model_size * 1),
-            nn.MaxPool2d(2, stride=2),
-            nn.ReLU()
+            nn.MaxPool2d(2, stride=2)
+            #nn.ReLU()
         )
 
         self.quarterres_layer2 = nn.Sequential(
             nn.Conv2d(self.model_size * 1, self.model_size * 2, 5, stride=1, padding=2),
+            nn.ReLU(),
             nn.BatchNorm2d(self.model_size * 2),
-            nn.MaxPool2d(2, stride=2 , padding =1), #Adding padding so upsample dimension fit
-            nn.ReLU()
+            nn.MaxPool2d(2, stride=2 , padding =1) #Adding padding so upsample dimension fit
+            #nn.ReLU()
         )
 
         self.quarterres_layer3 = nn.Sequential(
             nn.Conv2d(self.model_size * 2, self.model_size * 4, 9, stride=1, padding=4),
+            nn.ReLU(),
             nn.BatchNorm2d(self.model_size * 4),
-            nn.MaxPool2d(2, stride=2),
-            nn.ReLU()
+            nn.MaxPool2d(2, stride=2)
+            #nn.ReLU()
         )
 
         # Last common layers
         self.last_layers = nn.Sequential(
             nn.Conv2d(self.model_size * 4, self.model_size * 4, 9, stride=1, padding=4),
-            nn.BatchNorm2d(self.model_size * 4),
             nn.ReLU(),
+            nn.BatchNorm2d(self.model_size * 4),
             nn.Conv2d(self.model_size * 4, self.output_shape[2], 9, stride=1, padding=4)
         )
+
+        ## Upsampling and downsampling
 
         self.conv_downsample = nn.Sequential(
             nn.Conv2d(3, 3, 3, stride=2, padding=1),
@@ -139,7 +171,51 @@ class PoseDetector(pl.LightningModule):
 
         self.conv_upsample = nn.ConvTranspose2d(self.model_size * 4, self.model_size * 4, 3, stride=2, padding=1)
 
+        ## Softplus for spatial model
+        self.softplus = nn.Softplus(beta=5)
+
+    def conv_marginal_like(self, prior, likelihood):
+        likelihood_shape = likelihood.shape
+        prior = prior.permute(0,3,1,2)
+        likelihood = likelihood.permute(0,3,1,2)
+        likelihood = torch.flip(likelihood, dims=[2,3])
+
+        marginal = F.conv2d(prior, likelihood)
+        marginal = marginal.permute(1,2,3,0)
+        assert marginal.shape == likelihood_shape
+        return marginal
+
+    ## Spatial model
+    def spatial_model(self, part_detector_pred):
+        hm_logit = F.log_softmax(part_detector_pred, dim=1)
+        hm_logit = nn.BatchNorm2d(hm_logit.shape[1])(hm_logit)
+        hm_logit = hm_logit.permute(0,2,3,1)
+
+        heat_map_hat = []
+        for joint_id, joint_name in enumerate(self.joint_names):
+            hm = hm_logit[:, :, :, joint_id:joint_id + 1]
+            marginal_energy = torch.log(self.softplus(hm) + 1e-6)  #1e-6: numerical stability
+            for cond_joint in self.joint_dependence[joint_name]:
+                cond_joint_id = np.where(np.array(self.joint_names) == np.array(cond_joint))[0][0]
+                prior = self.softplus(self.pairwise_energies[joint_name + '_' + cond_joint])
+                likelihood = self.softplus(hm_logit[:, :, :, cond_joint_id:cond_joint_id + 1])
+                bias = self.softplus(self.pairwise_biases[joint_name + '_' + cond_joint])
+                marginal_energy += torch.log(self.conv_marginal_like(prior, likelihood) + bias + 1e-6)
+            heat_map_hat.append(marginal_energy)
+        return torch.stack(heat_map_hat, dim=3)[:,:,:,:,0].permute(0,3,1,2)
+
     def forward(self, inputs):
+        ## We need to reattach previous computation of pairwise variables to the new graph
+        ## This is needed because the previous graph is discarded between each batches
+        for joint in self.joint_names:#[:n_joints]:
+            for cond_joint in self.joint_dependence[joint]:
+                #TODO : manage dynamic sizing (in-place of 120,180)
+                ## TODO : Check if need to be manually placed on device
+                joint_key = joint + '_' + cond_joint
+                self.pairwise_energies[joint_key] = Variable(self.pairwise_energies[joint_key], requires_grad=True)
+                self.pairwise_biases[joint_key] = Variable(self.pairwise_biases[joint_key], requires_grad=True)
+
+
         fullres = inputs
         #halfres = nn.AvgPool2d(2, stride=2, padding=0)(fullres)
         #quarterres = nn.AvgPool2d(2, stride=2, padding=0)(halfres)
@@ -167,6 +243,11 @@ class PoseDetector(pl.LightningModule):
         output /= 3  # Take mean of sum
 
         output = self.last_layers(output)
+
+        if self.use_spatial_model:
+            output = self.spatial_model(output)
+
+
         return output
 
     def train_dataloader(self):
