@@ -187,7 +187,7 @@ class PoseDetector(pl.LightningModule):
 
     ## Spatial model
     def spatial_model(self, part_detector_pred):
-        hm_logit = F.log_softmax(part_detector_pred, dim=1)
+        hm_logit = torch.stack([F.log_softmax(part_detector_pred[i,:,:,:], dim=1) for i in range(part_detector_pred.shape[0])])
         hm_logit = nn.BatchNorm2d(hm_logit.shape[1])(hm_logit)
         hm_logit = hm_logit.permute(0,2,3,1)
 
@@ -245,10 +245,10 @@ class PoseDetector(pl.LightningModule):
         output = self.last_layers(output)
 
         if self.use_spatial_model:
-            output = self.spatial_model(output)
+            output_sm = self.spatial_model(output)
 
 
-        return output
+        return output, output_sm
 
     def train_dataloader(self):
         # Load data and create a DataLoader
@@ -298,7 +298,9 @@ class PoseDetector(pl.LightningModule):
         loss_fn = CrossELoss()
         #loss_fn = nn.BCEWithLogitsLoss()
         #loss_fn = nn.BCELoss()
-        loss = loss_fn(preds, targets)
+        loss_cnn = loss_fn(preds[0], targets)
+        loss_sm = loss_fn(preds[1], targets)
+        loss = loss_cnn + loss_sm
         return loss
 
     def training_step(self, batch, batch_idx):
@@ -338,7 +340,8 @@ class PoseDetector(pl.LightningModule):
     def on_epoch_end(self):
         # Test after each epoch on sample image and save image to output dir
         images, targets = next(iter(self.train_dataloader))
-        preds = self.forward(images).detach() * 100
+        preds = self.forward(images).detach()[1]
+        preds = torch.stack([F.softmax(preds[i,:,:,:], dim=1) for i in range(preds.shape[0])]) * 100
 
         save_folder = self.logger.log_dir
 
