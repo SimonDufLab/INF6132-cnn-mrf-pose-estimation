@@ -74,7 +74,6 @@ class PoseDetector(pl.LightningModule):
         for joint in self.joint_names:#[:n_joints]:
             for cond_joint in self.joint_dependence[joint]:
                 #TODO : manage dynamic sizing (in-place of 120,180)
-                ## TODO : Check if need to be manually placed on device
                 joint_key = joint + '_' + cond_joint
                 if self.gpu_cuda:
                     self.pairwise_energies[joint_key] = nn.Parameter(torch.ones([1,119,179,1], dtype=torch.float32, requires_grad=True, device="cuda")/(119*179))
@@ -83,6 +82,8 @@ class PoseDetector(pl.LightningModule):
                     self.pairwise_energies[joint_key] = nn.Parameter(torch.ones([1,119,179,1], dtype=torch.float32, requires_grad=True)/(119*179))
                     self.pairwise_biases[joint_key] = nn.Parameter(torch.ones([1,60,90,1], dtype=torch.float32, requires_grad=True)*1e-5)
 
+        #This line is needed in order to pass all pairwise parameters to the optimizer
+        self.pairwise_parameters = nn.ParameterList([self.pairwise_energies[joint_key] for joint_key in self.pairwise_energies.keys()]+[self.pairwise_biases[joint_key] for joint_key in self.pairwise_biases.keys()])
 
         # Layers for full resolution image
         self.fullres_layer1 = nn.Sequential(
