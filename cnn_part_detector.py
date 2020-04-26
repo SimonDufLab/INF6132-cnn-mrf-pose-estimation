@@ -261,14 +261,14 @@ class PoseDetector(pl.LightningModule):
     def train_dataloader(self):
         # Load data and create a DataLoader
         X_train, y_train = load_train_data()
-        self.train_dataloader = to_dataloader(X_train, y_train, batch_size=cfg.BATCH_SIZE)
+        self.train_dataloader = to_dataloader(X_train[:30], y_train[:30], batch_size=cfg.BATCH_SIZE)
         return self.train_dataloader
 
     # Same validation data as test data for now
     def val_dataloader(self):
         # Load data and create a DataLoader
         X_val, y_val = load_test_data()
-        val_dataloader = to_dataloader(X_val, y_val[:, :, :, 0:self.output_shape[2]], batch_size=cfg.BATCH_SIZE)
+        val_dataloader = to_dataloader(X_val[:30], y_val[:30, :, :, 0:self.output_shape[2]], batch_size=cfg.BATCH_SIZE)
         return val_dataloader
 
     def test_dataloader(self):
@@ -355,15 +355,15 @@ class PoseDetector(pl.LightningModule):
         images, targets = next(iter(self.train_dataloader))
         if self.gpu_cuda:
             images = images.to("cuda")
-        preds = self.forward(images)[1].detach()
-        preds = torch.stack([F.softmax(preds[i,:,:,:], dim=1) for i in range(preds.shape[0])]) * 100
-        if self.gpu_cuda:
-            preds = preds.cpu()
-            images = images.cpu()
+        predictions = self.forward(images)
+        #preds = torch.stack([F.softmax(preds[i,:,:,:], dim=1) for i in range(preds.shape[0])]) * 100
 
         # Save output images of cnn part detector as well as output of spatial model
         names = ["cnn", "spatial"]
         for i, prediction in enumerate(predictions):
+            if self.gpu_cuda:
+                preds = preds.cpu()
+                images = images.cpu()
             preds = prediction.detach()
             preds = torch.stack([F.softmax(preds[j,:,:,:], dim=1) for j in range(preds.shape[0])]) * 100
 
@@ -377,7 +377,7 @@ class PoseDetector(pl.LightningModule):
 
 if __name__ == "__main__":
     # Train model
-    model = PoseDetector(gpu_cuda = True)
+    model = PoseDetector(gpu_cuda = False)
     if model.gpu_cuda:
         trainer = pl.Trainer(max_epochs=cfg.EPOCHS, row_log_interval=1, gpus=1)
     else:

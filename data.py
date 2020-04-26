@@ -68,6 +68,7 @@ def viz_sample(image, heatmap, name=None, save_dir=None, permute = False):
 
     # Iterate on the heatmap for each joint
     plt.imshow(image)
+    plt.title("Image with targets on top") # I love title
 
     for i in range(heatmap.shape[2]):
         
@@ -82,13 +83,12 @@ def viz_sample(image, heatmap, name=None, save_dir=None, permute = False):
         heatmap_data = heatmap_data / np.max(heatmap_data.numpy())
         plt.imshow(heatmap_data, cmap=color_map)
 
-        # If name and save_dir are defined, save to location:
-        if name and save_dir:
-            save_path = f"{save_dir}/images/joint_{i}/{name}.png"
-            mkdir(save_path, path_is_file=True)
-            plt.savefig(save_path)
-    plt.title("Image with targets on top") #I love title
-    plt.show()
+    # If name and save_dir are defined, save to location:
+    if name and save_dir:
+        save_path = f"{save_dir}/images/{name}.png"
+        mkdir(save_path, path_is_file=True)
+        plt.savefig(save_path)
+    #plt.show()
 
 
 def main():
