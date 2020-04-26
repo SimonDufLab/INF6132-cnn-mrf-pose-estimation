@@ -280,7 +280,7 @@ class PoseDetector(pl.LightningModule):
     def configure_optimizers(self):
         # Use Adam optimizer to train model
         optimizer = torch.optim.Adam(self.parameters(), lr=cfg.LEARNING_RATE)
-        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', patience=2)
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', patience=4)
         return [optimizer], [scheduler]
         #return optimizer
 
@@ -357,13 +357,13 @@ class PoseDetector(pl.LightningModule):
             images = images.to("cuda")
         predictions = self.forward(images)
         #preds = torch.stack([F.softmax(preds[i,:,:,:], dim=1) for i in range(preds.shape[0])]) * 100
+        if self.gpu_cuda:
+            predictions = predictions[0].cpu(), predictions[1].cpu()
+            images = images.cpu()
 
         # Save output images of cnn part detector as well as output of spatial model
         names = ["cnn", "spatial"]
         for i, prediction in enumerate(predictions):
-            if self.gpu_cuda:
-                preds = preds.cpu()
-                images = images.cpu()
             preds = prediction.detach()
             preds = torch.stack([F.softmax(preds[j,:,:,:], dim=1) for j in range(preds.shape[0])]) * 100
 
