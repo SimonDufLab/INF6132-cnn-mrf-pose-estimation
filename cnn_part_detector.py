@@ -77,11 +77,11 @@ class PoseDetector(pl.LightningModule):
                 ## TODO : Check if need to be manually placed on device
                 joint_key = joint + '_' + cond_joint
                 if self.gpu_cuda:
-                    self.pairwise_energies[joint_key] = torch.ones([1,119,179,1], dtype=torch.float32, requires_grad=True, device="cuda")/(119*179)
-                    self.pairwise_biases[joint_key] = torch.ones([1,60,90,1], dtype=torch.float32, requires_grad=True, device="cuda")*1e-5
+                    self.pairwise_energies[joint_key] = nn.Parameter(torch.ones([1,119,179,1], dtype=torch.float32, requires_grad=True, device="cuda")/(119*179))
+                    self.pairwise_biases[joint_key] = nn.Parameter(torch.ones([1,60,90,1], dtype=torch.float32, requires_grad=True, device="cuda")*1e-5)
                 else:
-                    self.pairwise_energies[joint_key] = torch.ones([1,119,179,1], dtype=torch.float32, requires_grad=True)/(119*179)
-                    self.pairwise_biases[joint_key] = torch.ones([1,60,90,1], dtype=torch.float32, requires_grad=True)*1e-5
+                    self.pairwise_energies[joint_key] = nn.Parameter(torch.ones([1,119,179,1], dtype=torch.float32, requires_grad=True)/(119*179))
+                    self.pairwise_biases[joint_key] = nn.Parameter(torch.ones([1,60,90,1], dtype=torch.float32, requires_grad=True)*1e-5)
 
 
         # Layers for full resolution image
@@ -217,12 +217,12 @@ class PoseDetector(pl.LightningModule):
     def forward(self, inputs):
         ## We need to reattach previous computation of pairwise variables to the new graph
         ## This is needed because the previous graph is discarded between each batches
-        for joint in self.joint_names:#[:n_joints]:
-            for cond_joint in self.joint_dependence[joint]:
+        #for joint in self.joint_names:#[:n_joints]:
+        #    for cond_joint in self.joint_dependence[joint]:
                 ## TODO : Check if need to be manually placed on device
-                joint_key = joint + '_' + cond_joint
-                self.pairwise_energies[joint_key].detach_().requires_grad_(True)
-                self.pairwise_biases[joint_key].detach_().requires_grad_(True)
+        #        joint_key = joint + '_' + cond_joint
+        #        self.pairwise_energies[joint_key].detach_().requires_grad_(True)
+        #        self.pairwise_biases[joint_key].detach_().requires_grad_(True)
 
 
         fullres = inputs
