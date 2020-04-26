@@ -362,7 +362,7 @@ class PoseDetector(pl.LightningModule):
         names = ["cnn", "spatial"]
         for i, prediction in enumerate(predictions):
             if self.gpu_cuda:
-                preds = preds.cpu()
+                prediction = prediction.cpu()
                 images = images.cpu()
             preds = prediction.detach()
             preds = torch.stack([F.softmax(preds[j,:,:,:], dim=1) for j in range(preds.shape[0])]) * 100
