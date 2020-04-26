@@ -361,12 +361,18 @@ class PoseDetector(pl.LightningModule):
             preds = preds.cpu()
             images = images.cpu()
 
-        save_folder = self.logger.log_dir
+        # Save output images of cnn part detector as well as output of spatial model
+        names = ["cnn", "spatial"]
+        for i, prediction in enumerate(predictions):
+            preds = prediction.detach()
+            preds = torch.stack([F.softmax(preds[j,:,:,:], dim=1) for j in range(preds.shape[0])]) * 100
 
-        for i in range(2):
-            image, target, pred = images[i], targets[i], preds[i]
-            viz_sample(image.permute(1, 2, 0), target.permute(1, 2, 0), f"epoch_{self.current_epoch}_sample_{i}_train", save_dir=save_folder)
-            viz_sample(image.permute(1, 2, 0), pred.permute(1, 2, 0), f"epoch_{self.current_epoch}_sample_{i}_preds", save_dir=save_folder)
+            save_folder = self.logger.log_dir
+
+            for k in range(2):
+                image, target, pred = images[k], targets[k], preds[k]
+                viz_sample(image.permute(1, 2, 0), target.permute(1, 2, 0), f"{names[i]}_epoch_{self.current_epoch}_sample_{k}_train", save_dir=save_folder)
+                viz_sample(image.permute(1, 2, 0), pred.permute(1, 2, 0), f"{names[i]}_epoch_{self.current_epoch}_sample_{k}_preds", save_dir=save_folder)
 
 
 if __name__ == "__main__":
