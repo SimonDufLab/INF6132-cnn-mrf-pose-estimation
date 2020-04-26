@@ -49,17 +49,18 @@ class CrossELoss(nn.Module):
 
             loss += nn.functional.binary_cross_entropy_with_logits(heatmap_pred, heatmap_gt)
 
-        return loss / num_joints
+        return loss #/ num_joints
 
 
 class PoseDetector(pl.LightningModule):
 
-    def __init__(self, use_spatial_model=True):
+    def __init__(self, use_spatial_model=True, gpu_cuda = True):
         super(PoseDetector, self).__init__()
 
         self.model_size = cfg.MODEL_SIZE
         self.output_shape = (60, 90, 10)
         self.use_spatial_model = use_spatial_model
+        self.gpu_cuda = gpu_cuda
 
         # Model joints:
         self.joint_names = ['lsho', 'lelb', 'lwri', 'rsho', 'relb', 'rwri', 'lhip', 'rhip', 'nose', 'torso']
@@ -75,8 +76,12 @@ class PoseDetector(pl.LightningModule):
                 #TODO : manage dynamic sizing (in-place of 120,180)
                 ## TODO : Check if need to be manually placed on device
                 joint_key = joint + '_' + cond_joint
-                self.pairwise_energies[joint_key] = torch.ones([1,119,179,1], dtype=torch.float32)/(119*179)
-                self.pairwise_biases[joint_key] = torch.ones([1,60,90,1], dtype=torch.float32)/(60*90)
+                if self.gpu_cuda:
+                    self.pairwise_energies[joint_key] = torch.ones([1,119,179,1], dtype=torch.float32, requires_grad=True, device="cuda")/(119*179)
+                    self.pairwise_biases[joint_key] = torch.ones([1,60,90,1], dtype=torch.float32, requires_grad=True, device="cuda")/(60*90)
+                else:
+                    self.pairwise_energies[joint_key] = torch.ones([1,119,179,1], dtype=torch.float32, requires_grad=True)/(119*179)
+                    self.pairwise_biases[joint_key] = torch.ones([1,60,90,1], dtype=torch.float32, requires_grad=True)/(60*90)
 
 
         # Layers for full resolution image
@@ -171,8 +176,13 @@ class PoseDetector(pl.LightningModule):
 
         self.conv_upsample = nn.ConvTranspose2d(self.model_size * 4, self.model_size * 4, 3, stride=2, padding=1)
 
+        self.conv1_1 = nn.Conv2d(self.model_size * 4, self.model_size * 4, 1, stride=1, padding=0)
+
         ## Softplus for spatial model
         self.softplus = nn.Softplus(beta=5)
+
+        ## Batchnorm for spatial model
+        self.BN_SM = nn.BatchNorm2d(self.output_shape[2])
 
     def conv_marginal_like(self, prior, likelihood):
         likelihood_shape = likelihood.shape
@@ -188,7 +198,7 @@ class PoseDetector(pl.LightningModule):
     ## Spatial model
     def spatial_model(self, part_detector_pred):
         hm_logit = torch.stack([F.log_softmax(part_detector_pred[i,:,:,:], dim=1) for i in range(part_detector_pred.shape[0])])
-        hm_logit = nn.BatchNorm2d(hm_logit.shape[1])(hm_logit)
+        hm_logit = self.BN_SM(hm_logit)
         hm_logit = hm_logit.permute(0,2,3,1)
 
         heat_map_hat = []
@@ -209,11 +219,10 @@ class PoseDetector(pl.LightningModule):
         ## This is needed because the previous graph is discarded between each batches
         for joint in self.joint_names:#[:n_joints]:
             for cond_joint in self.joint_dependence[joint]:
-                #TODO : manage dynamic sizing (in-place of 120,180)
                 ## TODO : Check if need to be manually placed on device
                 joint_key = joint + '_' + cond_joint
-                self.pairwise_energies[joint_key] = Variable(self.pairwise_energies[joint_key], requires_grad=True)
-                self.pairwise_biases[joint_key] = Variable(self.pairwise_biases[joint_key], requires_grad=True)
+                self.pairwise_energies[joint_key].detach_().requires_grad_(True)
+                self.pairwise_biases[joint_key].detach_().requires_grad_(True)
 
 
         fullres = inputs
@@ -236,7 +245,7 @@ class PoseDetector(pl.LightningModule):
         quarterres = self.quarterres_layer2(quarterres)
         quarterres = self.quarterres_layer3(quarterres)
         quarterres = self.conv_upsample(quarterres, output_size=halfres_size)
-        quarterres = nn.Conv2d(self.model_size * 4, self.model_size * 4, 1, stride=1, padding=0)(quarterres)
+        quarterres = self.conv1_1(quarterres)
         quarterres = self.conv_upsample(quarterres, output_size=fullres.size())
 
         output = fullres + halfres + quarterres
@@ -246,7 +255,6 @@ class PoseDetector(pl.LightningModule):
 
         if self.use_spatial_model:
             output_sm = self.spatial_model(output)
-
 
         return output, output_sm
 
@@ -272,7 +280,9 @@ class PoseDetector(pl.LightningModule):
     def configure_optimizers(self):
         # Use Adam optimizer to train model
         optimizer = torch.optim.Adam(self.parameters(), lr=cfg.LEARNING_RATE)
-        return optimizer
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', patience=2)
+        return [optimizer], [scheduler]
+        #return optimizer
 
     def loss(self, preds, targets):
         # TODO: find loss function that works
@@ -299,7 +309,10 @@ class PoseDetector(pl.LightningModule):
         #loss_fn = nn.BCEWithLogitsLoss()
         #loss_fn = nn.BCELoss()
         loss_cnn = loss_fn(preds[0], targets)
-        loss_sm = loss_fn(preds[1], targets)
+        if self.use_spatial_model:
+            loss_sm = loss_fn(preds[1], targets)
+        else :
+            loss_sm = 0
         loss = loss_cnn + loss_sm
         return loss
 
@@ -340,8 +353,13 @@ class PoseDetector(pl.LightningModule):
     def on_epoch_end(self):
         # Test after each epoch on sample image and save image to output dir
         images, targets = next(iter(self.train_dataloader))
+        if self.gpu_cuda:
+            images = images.to("cuda")
         preds = self.forward(images)[1].detach()
         preds = torch.stack([F.softmax(preds[i,:,:,:], dim=1) for i in range(preds.shape[0])]) * 100
+        if self.gpu_cuda:
+            preds = preds.cpu()
+            images = images.cpu()
 
         save_folder = self.logger.log_dir
 
@@ -353,6 +371,9 @@ class PoseDetector(pl.LightningModule):
 
 if __name__ == "__main__":
     # Train model
-    model = PoseDetector()
-    trainer = pl.Trainer(max_epochs=cfg.EPOCHS, row_log_interval=1)
+    model = PoseDetector(gpu_cuda = True)
+    if model.gpu_cuda:
+        trainer = pl.Trainer(max_epochs=cfg.EPOCHS, row_log_interval=1, gpus=1)
+    else:
+        trainer = pl.Trainer(max_epochs=cfg.EPOCHS, row_log_interval=1)
     trainer.fit(model)
