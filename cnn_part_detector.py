@@ -78,10 +78,10 @@ class PoseDetector(pl.LightningModule):
                 joint_key = joint + '_' + cond_joint
                 if self.gpu_cuda:
                     self.pairwise_energies[joint_key] = torch.ones([1,119,179,1], dtype=torch.float32, requires_grad=True, device="cuda")/(119*179)
-                    self.pairwise_biases[joint_key] = torch.ones([1,60,90,1], dtype=torch.float32, requires_grad=True, device="cuda")/(60*90)
+                    self.pairwise_biases[joint_key] = torch.ones([1,60,90,1], dtype=torch.float32, requires_grad=True, device="cuda")*1e-5
                 else:
                     self.pairwise_energies[joint_key] = torch.ones([1,119,179,1], dtype=torch.float32, requires_grad=True)/(119*179)
-                    self.pairwise_biases[joint_key] = torch.ones([1,60,90,1], dtype=torch.float32, requires_grad=True)/(60*90)
+                    self.pairwise_biases[joint_key] = torch.ones([1,60,90,1], dtype=torch.float32, requires_grad=True)*1e-5
 
 
         # Layers for full resolution image
