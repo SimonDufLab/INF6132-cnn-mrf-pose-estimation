@@ -11,7 +11,7 @@ from utils import mkdir
 data_folder = "./data/"
 
 
-def to_dataloader(X, y, batch_size=10):
+def to_dataloader(X, y, batch_size=10, shuffle = True):
     # Numpy arrays to pytorch DataLoader
     X, y = torch.Tensor(X), torch.Tensor(y)
 
@@ -19,7 +19,7 @@ def to_dataloader(X, y, batch_size=10):
     X, y = X.permute(0, 3, 1, 2), y.permute(0, 3, 1, 2)
 
     dataset = data.TensorDataset(X, y)
-    dataloader = data.DataLoader(dataset, batch_size=batch_size, shuffle=True)
+    dataloader = data.DataLoader(dataset, batch_size=batch_size, shuffle=shuffle)
 
     return dataloader
 
@@ -59,7 +59,7 @@ def viz_sample(image, heatmap, name=None, save_dir=None, permute = False):
     if permute :
         image = image.permute(1,2,0)
         heatmap = heatmap.permute(1,2,0)
-    
+
     # Vizualise single image and heatmap target using
     # matplotlib
     image = resize(image, (60, 90, 3))
@@ -71,7 +71,7 @@ def viz_sample(image, heatmap, name=None, save_dir=None, permute = False):
     plt.title("Image with targets on top") # I love title
 
     for i in range(heatmap.shape[2]):
-        
+
         cs = [(0, 0, 0, 0), joint_colors[i]]
         color_map = colors.LinearSegmentedColormap.from_list("cmap", cs)
 

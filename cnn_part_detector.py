@@ -198,20 +198,23 @@ class PoseDetector(pl.LightningModule):
 
     ## Spatial model
     def spatial_model(self, part_detector_pred):
-        hm_logit = torch.stack([F.log_softmax(part_detector_pred[i,:,:,:], dim=1) for i in range(part_detector_pred.shape[0])])
+        hm_logit = torch.stack([F.softmax(part_detector_pred[i,:,:,:], dim=1) for i in range(part_detector_pred.shape[0])])
         hm_logit = self.BN_SM(hm_logit)
         hm_logit = hm_logit.permute(0,2,3,1)
 
         heat_map_hat = []
         for joint_id, joint_name in enumerate(self.joint_names):
             hm = hm_logit[:, :, :, joint_id:joint_id + 1]
-            marginal_energy = torch.log(self.softplus(hm) + 1e-6)  #1e-6: numerical stability
+            #marginal_energy = torch.log(self.softplus(hm) + 1e-6)  #1e-6: numerical stability
+            marginal_energy = 0
             for cond_joint in self.joint_dependence[joint_name]:
-                cond_joint_id = np.where(np.array(self.joint_names) == np.array(cond_joint))[0][0]
+                #cond_joint_id = np.where(np.array(self.joint_names) == np.array(cond_joint))[0][0]
+                cond_joint_id = self.joint_names.index(cond_joint)
                 prior = self.softplus(self.pairwise_energies[joint_name + '_' + cond_joint])
                 likelihood = self.softplus(hm_logit[:, :, :, cond_joint_id:cond_joint_id + 1])
                 bias = self.softplus(self.pairwise_biases[joint_name + '_' + cond_joint])
                 marginal_energy += torch.log(self.conv_marginal_like(prior, likelihood) + bias + 1e-6)
+            marginal_energy = hm * F.softmax(marginal_energy, dim=0) ## Test
             heat_map_hat.append(marginal_energy)
         return torch.stack(heat_map_hat, dim=3)[:,:,:,:,0].permute(0,3,1,2)
 
@@ -269,7 +272,7 @@ class PoseDetector(pl.LightningModule):
     def val_dataloader(self):
         # Load data and create a DataLoader
         X_val, y_val = load_test_data()
-        val_dataloader = to_dataloader(X_val, y_val[:, :, :, 0:self.output_shape[2]], batch_size=cfg.BATCH_SIZE)
+        val_dataloader = to_dataloader(X_val, y_val[:, :, :, 0:self.output_shape[2]], batch_size=cfg.BATCH_SIZE, shuffle = False)
         return val_dataloader
 
     def test_dataloader(self):
@@ -281,7 +284,8 @@ class PoseDetector(pl.LightningModule):
     def configure_optimizers(self):
         # Use Adam optimizer to train model
         optimizer = torch.optim.Adam(self.parameters(), lr=cfg.LEARNING_RATE)
-        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', patience=4)
+        #scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', patience=4)
+        scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.1)
         return [optimizer], [scheduler]
         #return optimizer
 
