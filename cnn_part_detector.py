@@ -49,7 +49,7 @@ class CrossELoss(nn.Module):
 
             loss += nn.functional.binary_cross_entropy_with_logits(heatmap_pred, heatmap_gt)
 
-        return loss #/ num_joints
+        return loss
 
 
 class PoseDetector(pl.LightningModule):
@@ -91,7 +91,6 @@ class PoseDetector(pl.LightningModule):
             nn.ReLU(),
             nn.BatchNorm2d(self.model_size * 1),
             nn.MaxPool2d(2, stride=2)
-            #nn.ReLU()
         )
 
         self.fullres_layer2 = nn.Sequential(
@@ -99,7 +98,6 @@ class PoseDetector(pl.LightningModule):
             nn.ReLU(),
             nn.BatchNorm2d(self.model_size * 2),
             nn.MaxPool2d(2, stride=2)
-            #nn.ReLU()
         )
 
         self.fullres_layer3 = nn.Sequential(
@@ -107,7 +105,6 @@ class PoseDetector(pl.LightningModule):
             nn.ReLU(),
             nn.BatchNorm2d(self.model_size * 4),
             nn.MaxPool2d(2, stride=2)
-            #nn.ReLU()
         )
 
         # Layers for half resolution image
@@ -116,7 +113,6 @@ class PoseDetector(pl.LightningModule):
             nn.ReLU(),
             nn.BatchNorm2d(self.model_size * 1),
             nn.MaxPool2d(2, stride=2)
-            #nn.ReLU()
         )
 
         self.halfres_layer2 = nn.Sequential(
@@ -124,7 +120,6 @@ class PoseDetector(pl.LightningModule):
             nn.ReLU(),
             nn.BatchNorm2d(self.model_size * 2),
             nn.MaxPool2d(2, stride=2)
-            #nn.ReLU()
         )
 
         self.halfres_layer3 = nn.Sequential(
@@ -132,7 +127,6 @@ class PoseDetector(pl.LightningModule):
             nn.ReLU(),
             nn.BatchNorm2d(self.model_size * 4),
             nn.MaxPool2d(2, stride=2)
-            #nn.ReLU()
         )
 
         # Layers for quarter resolution image
@@ -141,7 +135,6 @@ class PoseDetector(pl.LightningModule):
             nn.ReLU(),
             nn.BatchNorm2d(self.model_size * 1),
             nn.MaxPool2d(2, stride=2)
-            #nn.ReLU()
         )
 
         self.quarterres_layer2 = nn.Sequential(
@@ -149,7 +142,6 @@ class PoseDetector(pl.LightningModule):
             nn.ReLU(),
             nn.BatchNorm2d(self.model_size * 2),
             nn.MaxPool2d(2, stride=2 , padding =1) #Adding padding so upsample dimension fit
-            #nn.ReLU()
         )
 
         self.quarterres_layer3 = nn.Sequential(
@@ -157,7 +149,6 @@ class PoseDetector(pl.LightningModule):
             nn.ReLU(),
             nn.BatchNorm2d(self.model_size * 4),
             nn.MaxPool2d(2, stride=2)
-            #nn.ReLU()
         )
 
         # Last common layers
@@ -219,19 +210,8 @@ class PoseDetector(pl.LightningModule):
         return torch.stack(heat_map_hat, dim=3)[:,:,:,:,0].permute(0,3,1,2)
 
     def forward(self, inputs):
-        ## We need to reattach previous computation of pairwise variables to the new graph
-        ## This is needed because the previous graph is discarded between each batches
-        #for joint in self.joint_names:#[:n_joints]:
-        #    for cond_joint in self.joint_dependence[joint]:
-                ## TODO : Check if need to be manually placed on device
-        #        joint_key = joint + '_' + cond_joint
-        #        self.pairwise_energies[joint_key].detach_().requires_grad_(True)
-        #        self.pairwise_biases[joint_key].detach_().requires_grad_(True)
-
 
         fullres = inputs
-        #halfres = nn.AvgPool2d(2, stride=2, padding=0)(fullres)
-        #quarterres = nn.AvgPool2d(2, stride=2, padding=0)(halfres)
         halfres = self.conv_downsample(fullres)
         quarterres = self.conv_downsample(halfres)
 
@@ -290,29 +270,10 @@ class PoseDetector(pl.LightningModule):
         #return optimizer
 
     def loss(self, preds, targets):
-        # TODO: find loss function that works
 
-        # Use Softmax2d?
-        #softmax = torch.nn.Softmax2d()
-        #preds = softmax(preds)
-        #print(f"max preds: {preds.max()} | target max: {targets.max()}")
-
-        # Reshape heatmaps?
-        #preds = preds.view(-1, self.output_shape[2], self.output_shape[0]*self.output_shape[1])
-        #targets = targets.view(-1, self.output_shape[2], self.output_shape[0]*self.output_shape[1])
-
-        # MULTIPLE TRIES, CAN IGNORE
-        #loss = F.nll_loss(preds, targets)
-        # pytorch function to replicate tensorflow's tf.nn.softmax_cross_entropy_with_logits
-        #loss = torch.sum(- targets * F.log_softmax(preds, -1), -1)
-        #preds = F.softmax(preds, dim=2)
-        #loss = -torch.sum(targets * torch.log(preds), 1)
-        #loss = torch.mean(loss)
         #loss_fn = JointsMSELoss()
 
         loss_fn = CrossELoss()
-        #loss_fn = nn.BCEWithLogitsLoss()
-        #loss_fn = nn.BCELoss()
         loss_cnn = loss_fn(preds[0], targets)
         if self.use_spatial_model:
             loss_sm = loss_fn(preds[1], targets)
@@ -379,12 +340,15 @@ class PoseDetector(pl.LightningModule):
                 viz_sample(image.permute(1, 2, 0), target.permute(1, 2, 0), f"{names[i]}_epoch_{self.current_epoch}_sample_{k}_train", save_dir=save_folder)
                 viz_sample(image.permute(1, 2, 0), pred.permute(1, 2, 0), f"{names[i]}_epoch_{self.current_epoch}_sample_{k}_preds", save_dir=save_folder)
 
+    def checkpoint_callback(self):
+        return pl.callbacks.ModelCheckpoint(save_top_k = -1, period = 10)
+
 
 if __name__ == "__main__":
     # Train model
     model = PoseDetector(gpu_cuda = True)
     if model.gpu_cuda:
-        trainer = pl.Trainer(max_epochs=cfg.EPOCHS, row_log_interval=1, gpus=1)
+        trainer = pl.Trainer(max_epochs=cfg.EPOCHS, row_log_interval=1, checkpoint_callback=model.checkpoint_callback(), gpus=1)
     else:
-        trainer = pl.Trainer(max_epochs=cfg.EPOCHS, row_log_interval=1)
+        trainer = pl.Trainer(max_epochs=cfg.EPOCHS, checkpoint_callback=model.checkpoint_callback(), row_log_interval=1)
     trainer.fit(model)

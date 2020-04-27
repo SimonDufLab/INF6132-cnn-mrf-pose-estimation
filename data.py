@@ -68,7 +68,10 @@ def viz_sample(image, heatmap, name=None, save_dir=None, permute = False):
 
     # Iterate on the heatmap for each joint
     plt.imshow(image)
-    plt.title("Image with targets on top") # I love title
+    if name:
+        plt.title("Displaying targets: " + name)
+    else:
+        plt.title("Image with targets on top") # I love title
 
     for i in range(heatmap.shape[2]):
 
@@ -88,6 +91,9 @@ def viz_sample(image, heatmap, name=None, save_dir=None, permute = False):
         save_path = f"{save_dir}/images/{name}.png"
         mkdir(save_path, path_is_file=True)
         plt.savefig(save_path)
+
+    plt.cla()
+    plt.clf() ## Clearing axes and current figure should help image saving more efficient.
     #plt.show()
 
 
