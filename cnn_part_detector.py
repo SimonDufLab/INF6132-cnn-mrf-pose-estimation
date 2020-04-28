@@ -8,6 +8,7 @@ from data import load_train_data, load_test_data, to_dataloader, viz_sample
 import config as cfg
 import utils
 import numpy as np
+import os
 
 
 class JointsMSELoss(nn.Module):
@@ -340,15 +341,13 @@ class PoseDetector(pl.LightningModule):
                 viz_sample(image.permute(1, 2, 0), target.permute(1, 2, 0), f"{names[i]}_epoch_{self.current_epoch}_sample_{k}_train", save_dir=save_folder)
                 viz_sample(image.permute(1, 2, 0), pred.permute(1, 2, 0), f"{names[i]}_epoch_{self.current_epoch}_sample_{k}_preds", save_dir=save_folder)
 
-    def checkpoint_callback(self):
-        return pl.callbacks.ModelCheckpoint(save_top_k = -1, period = 10)
-
 
 if __name__ == "__main__":
     # Train model
     model = PoseDetector(gpu_cuda = True)
+    checkpoint_callback = pl.callbacks.ModelCheckpoint(filepath=os.getcwd(), save_top_k = 1, period = 10)
     if model.gpu_cuda:
-        trainer = pl.Trainer(max_epochs=cfg.EPOCHS, row_log_interval=1, checkpoint_callback=model.checkpoint_callback(), gpus=1)
+        trainer = pl.Trainer(max_epochs=cfg.EPOCHS, row_log_interval=1, checkpoint_callback=checkpoint_callback, gpus=1)
     else:
-        trainer = pl.Trainer(max_epochs=cfg.EPOCHS, checkpoint_callback=model.checkpoint_callback(), row_log_interval=1)
+        trainer = pl.Trainer(max_epochs=cfg.EPOCHS, checkpoint_callback=checkpoint_callback, row_log_interval=1)
     trainer.fit(model)
