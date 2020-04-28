@@ -338,8 +338,8 @@ class PoseDetector(pl.LightningModule):
 
             for k in range(2):
                 image, target, pred = images[k], targets[k], preds[k]
-                viz_sample(image.permute(1, 2, 0), target.permute(1, 2, 0), f"{names[i]}_epoch_{self.current_epoch}_sample_{k}_train", save_dir=save_folder)
-                viz_sample(image.permute(1, 2, 0), pred.permute(1, 2, 0), f"{names[i]}_epoch_{self.current_epoch}_sample_{k}_preds", save_dir=save_folder)
+                viz_sample(image.permute(1, 2, 0), target.permute(1, 2, 0), f"{names[i]}_epoch_{self.current_epoch}_sample_{k}_train", save_dir=save_folder, full_res=True)
+                viz_sample(image.permute(1, 2, 0), pred.permute(1, 2, 0), f"{names[i]}_epoch_{self.current_epoch}_sample_{k}_preds", save_dir=save_folder, full_res=True)
 
 
 if __name__ == "__main__":

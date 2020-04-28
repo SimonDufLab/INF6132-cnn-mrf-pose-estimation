@@ -54,15 +54,16 @@ def load_data(path=data_folder):
     return X_train, y_train, X_test, y_test
 
 
-def viz_sample(image, heatmap, name=None, save_dir=None, permute = False):
-    #Need permutation?
+def viz_sample(image, heatmap, name=None, save_dir=None, permute=False, full_res=False):
+    # Need permutation?
     if permute :
         image = image.permute(1,2,0)
         heatmap = heatmap.permute(1,2,0)
 
     # Vizualise single image and heatmap target using
     # matplotlib
-    image = resize(image, (60, 90, 3))
+    if not full_res:
+        image = resize(image, (60, 90, 3))
     joint_colors = ("red", "green", "blue", "yellow", "purple",
                     "orange", "black", "white", "cyan", "darkblue")
 
@@ -71,7 +72,7 @@ def viz_sample(image, heatmap, name=None, save_dir=None, permute = False):
     if name:
         plt.title("Displaying targets: " + name)
     else:
-        plt.title("Image with targets on top") # I love title
+        plt.title("Image with targets on top")  # I love title
 
     for i in range(heatmap.shape[2]):
 
@@ -79,11 +80,13 @@ def viz_sample(image, heatmap, name=None, save_dir=None, permute = False):
         color_map = colors.LinearSegmentedColormap.from_list("cmap", cs)
 
         heatmap_data = heatmap[:, :, i]
-        #heatmap_data = resize(heatmap_data, (480, 720))
+
+        if full_res:
+            heatmap_data = resize(heatmap_data, (480, 720))
 
         # Mask image to show only joint location
         heatmap_data[heatmap_data < 0.01] = 0
-        heatmap_data = heatmap_data / np.max(heatmap_data.numpy())
+        heatmap_data = heatmap_data / np.max(heatmap_data)
         plt.imshow(heatmap_data, cmap=color_map)
 
     # If name and save_dir are defined, save to location:
@@ -94,7 +97,6 @@ def viz_sample(image, heatmap, name=None, save_dir=None, permute = False):
 
     plt.cla()
     plt.clf() ## Clearing axes and current figure should help image saving more efficient.
-    #plt.show()
 
 
 def main():
