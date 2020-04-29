@@ -281,23 +281,28 @@ class PoseDetector(pl.LightningModule):
             loss_sm = loss_fn(preds[1], targets)
         else :
             loss_sm = 0
-        loss = loss_cnn + loss_sm
-        return loss
+        #loss = loss_cnn + loss_sm
+        return [loss_cnn , loss_sm]
 
     def training_step(self, batch, batch_idx):
         # Forward pass of the training and loss computation
         inputs, targets = batch
         preds = self.forward(inputs)
         loss = self.loss(preds, targets)
-        logs = {"train_loss": loss}
-        return {"loss": loss, "log": logs}
+        logs = {"train_loss": loss[0] + loss[1],
+                "CNN_train_loss": loss[0],
+                "SM_train_loss": loss[1]}
+        return {"loss": loss[0]+loss[1], "log": logs}
 
     def validation_step(self, batch, batch_idx):
         # Forward pass of the validation
         images, targets = batch
         preds = self.forward(images)
         loss = self.loss(preds, targets)
-        return {'val_loss': loss}
+        logs = {"val_loss": loss[0] + loss[1],
+                "CNN_val_loss": loss[0],
+                "SM_val_loss": loss[1]}
+        return {'val_loss': loss[0]+loss[1], "log": logs}
 
     def validation_end(self, outputs):
         # Log validation loss to tensorboard
@@ -310,6 +315,7 @@ class PoseDetector(pl.LightningModule):
         inputs, targets = val_batch
         preds = self.forward(inputs)
         loss = self.loss(preds, targets)
+        loss = loss[0]+loss[1]
         return {'test_loss': loss}
 
     def test_epoch_end(self, outputs):
