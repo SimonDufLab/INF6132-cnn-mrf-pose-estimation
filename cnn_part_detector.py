@@ -62,6 +62,7 @@ class PoseDetector(pl.LightningModule):
         self.output_shape = (60, 90, 10)
         self.use_spatial_model = use_spatial_model
         self.gpu_cuda = gpu_cuda
+        self._test_dataloader = self.test_dataloader()
 
         # Model joints:
         self.joint_names = ['lsho', 'lelb', 'lwri', 'rsho', 'relb', 'rwri', 'lhip', 'rhip', 'nose', 'torso']
@@ -319,7 +320,7 @@ class PoseDetector(pl.LightningModule):
 
     def on_epoch_end(self):
         # Test after each epoch on sample image and save image to output dir
-        images, targets = next(iter(self.train_dataloader))
+        images, targets = next(iter(self._test_dataloader))
         if self.gpu_cuda:
             images = images.to("cuda")
         predictions = self.forward(images)
