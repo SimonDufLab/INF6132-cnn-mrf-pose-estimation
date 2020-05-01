@@ -190,10 +190,12 @@ class PoseDetector(pl.LightningModule):
         return marginal
 
     ## Spatial model
-    def spatial_model(self, part_detector_pred):
+    def spatial_model(self, part_detector_pred, dissect = False):
         hm_logit = torch.stack([F.softmax(part_detector_pred[i,:,:,:], dim=1) for i in range(part_detector_pred.shape[0])])
         hm_logit = self.BN_SM(hm_logit)
         hm_logit = hm_logit.permute(0,2,3,1)
+        if dissect:
+            marginal_energies = {}
 
         heat_map_hat = []
         for joint_id, joint_name in enumerate(self.joint_names):
@@ -206,10 +208,16 @@ class PoseDetector(pl.LightningModule):
                 prior = self.softplus(self.pairwise_energies[joint_name + '_' + cond_joint])
                 likelihood = self.softplus(hm_logit[:, :, :, cond_joint_id:cond_joint_id + 1])
                 bias = self.softplus(self.pairwise_biases[joint_name + '_' + cond_joint])
-                marginal_energy += torch.log(self.conv_marginal_like(prior, likelihood) + bias + 1e-6)
+                marginal_energy_part = torch.log(self.conv_marginal_like(prior, likelihood) + bias + 1e-6)
+                marginal_energy += marginal_energy_part
+                if dissect:
+                    marginal_energies[joint_name + '_' + cond_joint] = marginal_energy_part
             marginal_energy = hm * F.softmax(marginal_energy, dim=0) ## Test
             heat_map_hat.append(marginal_energy)
-        return torch.stack(heat_map_hat, dim=3)[:,:,:,:,0].permute(0,3,1,2)
+        if dissect:
+            return marginal_energies
+        else:
+            return torch.stack(heat_map_hat, dim=3)[:,:,:,:,0].permute(0,3,1,2)
 
     def forward(self, inputs):
 
