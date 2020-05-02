@@ -191,7 +191,8 @@ class PoseDetector(pl.LightningModule):
 
     ## Spatial model
     def spatial_model(self, part_detector_pred, dissect = False):
-        hm_logit = torch.stack([F.softmax(part_detector_pred[i,:,:,:], dim=1) for i in range(part_detector_pred.shape[0])])
+        shp = part_detector_pred.shape
+        hm_logit = torch.stack([(F.softmax(part_detector_pred[i,:,:,:].reshape(shp[1],-1), dim=1)).reshape(shp[1],shp[2],shp[3]) for i in range(shp[0])])
         hm_logit = self.BN_SM(hm_logit)
         hm_logit = hm_logit.permute(0,2,3,1)
         if dissect:
@@ -208,11 +209,12 @@ class PoseDetector(pl.LightningModule):
                 prior = self.softplus(self.pairwise_energies[joint_name + '_' + cond_joint])
                 likelihood = self.softplus(hm_logit[:, :, :, cond_joint_id:cond_joint_id + 1])
                 bias = self.softplus(self.pairwise_biases[joint_name + '_' + cond_joint])
-                marginal_energy_part = torch.log(self.conv_marginal_like(prior, likelihood) + bias + 1e-6)
+                marginal_energy_part = torch.log(self.conv_marginal_like(prior, likelihood) + bias + 1e-6) #1e-6: numerical stability
                 marginal_energy += marginal_energy_part
                 if dissect:
                     marginal_energies[joint_name + '_' + cond_joint] = marginal_energy_part
-            marginal_energy = hm * F.softmax(marginal_energy, dim=0) ## Test
+            shp = marginal_energy.shape
+            marginal_energy = hm * F.softmax(marginal_energy.reshape(shp[0],-1), dim=1).reshape(shp) ## Test
             heat_map_hat.append(marginal_energy)
         if dissect:
             return marginal_energies
@@ -347,7 +349,8 @@ class PoseDetector(pl.LightningModule):
         names = ["cnn", "spatial"]
         for i, prediction in enumerate(predictions):
             preds = prediction.detach()
-            preds = torch.stack([F.softmax(preds[j,:,:,:], dim=1) for j in range(preds.shape[0])]) * 100
+            shp = preds.shape
+            preds = torch.stack([(F.softmax(preds[j,:,:,:].reshape(shp[1],-1), dim=1)).reshape(shp[1],shp[2],shp[3]) for j in range(shp[0])]) * 100
 
             save_folder = self.logger.log_dir
 

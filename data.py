@@ -85,7 +85,7 @@ def viz_sample(image, heatmap, name=None, save_dir=None, permute=False, full_res
             heatmap_data = resize(heatmap_data, (480, 720))
 
         # Mask image to show only joint location
-        heatmap_data[heatmap_data < 0.01] = 0
+        heatmap_data[heatmap_data < heatmap_data.max()-(heatmap_data.max()-heatmap_data.min())*0.55]  #Better threshold for last model iteration
         heatmap_data = heatmap_data / np.max(heatmap_data)
         plt.imshow(heatmap_data, cmap=color_map)
 
