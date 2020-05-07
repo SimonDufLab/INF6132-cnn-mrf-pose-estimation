@@ -10,6 +10,16 @@ from utils import mkdir
 # Folder containing 4 .npz files for training and test set
 data_folder = "./data/"
 
+# List of the joints in the order of the channels. For example, channel 1 of
+# the heatmap will represent the left_shoulder, channel 2 will be the left
+# elbow, etc.
+joint_ids = ['lsho', 'lelb', 'lwri', 'rsho', 'relb', 'rwri',
+             'lhip', 'rhip', 'nose', 'torso']
+
+# Colors of the joints in the same order when visualising the heatmaps
+joint_colors = ("red", "green", "blue", "yellow", "purple",
+                "orange", "black", "white", "cyan", "darkblue")
+
 
 def to_dataloader(X, y, batch_size=10, shuffle = True):
     # Numpy arrays to pytorch DataLoader
@@ -52,7 +62,6 @@ def load_data(path=data_folder):
     X_test, y_test = load_test_data(path)
 
     return X_train, y_train, X_test, y_test
-
 
 def viz_sample(image, heatmap, name=None, save_dir=None, permute=False, full_res=False):
     # Need permutation?
@@ -107,10 +116,10 @@ def main():
     image_number = 10
 
     # Vizualise first sample of train dataset
-    viz_sample(train.dataset[image_number][0], train.dataset[image_number][1], permute = True)
+    viz_sample(train.dataset[image_number][0], train.dataset[image_number][1], permute=True)
 
     # Vizualise first sample of test dataset
-    viz_sample(test.dataset[image_number][0], test.dataset[image_number][1], permute = True)
+    viz_sample(test.dataset[image_number][0], test.dataset[image_number][1], permute=True)
 
 
 if __name__ == "__main__":
