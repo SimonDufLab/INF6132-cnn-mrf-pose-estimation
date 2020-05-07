@@ -21,7 +21,7 @@ joint_colors = ("red", "green", "blue", "yellow", "purple",
                 "orange", "black", "white", "cyan", "darkblue")
 
 
-def to_dataloader(X, y, batch_size=10):
+def to_dataloader(X, y, batch_size=10, shuffle = True):
     # Numpy arrays to pytorch DataLoader
     X, y = torch.Tensor(X), torch.Tensor(y)
 
@@ -29,7 +29,7 @@ def to_dataloader(X, y, batch_size=10):
     X, y = X.permute(0, 3, 1, 2), y.permute(0, 3, 1, 2)
 
     dataset = data.TensorDataset(X, y)
-    dataloader = data.DataLoader(dataset, batch_size=batch_size, shuffle=True)
+    dataloader = data.DataLoader(dataset, batch_size=batch_size, shuffle=shuffle)
 
     return dataloader
 
@@ -63,41 +63,49 @@ def load_data(path=data_folder):
 
     return X_train, y_train, X_test, y_test
 
-
-def viz_sample(image, heatmap, name=None, save_dir=None, permute=False):
-    global joint_colors
-
+def viz_sample(image, heatmap, name=None, save_dir=None, permute=False, full_res=False):
     # Need permutation?
-    if permute:
-        image = image.permute(1, 2, 0)
-        heatmap = heatmap.permute(1, 2, 0)
+    if permute :
+        image = image.permute(1,2,0)
+        heatmap = heatmap.permute(1,2,0)
 
     # Vizualise single image and heatmap target using
     # matplotlib
-    image = resize(image, (60, 90, 3))
+    if not full_res:
+        image = resize(image, (60, 90, 3))
+    joint_colors = ("red", "green", "blue", "yellow", "purple",
+                    "orange", "black", "white", "cyan", "darkblue")
 
     # Iterate on the heatmap for each joint
     plt.imshow(image)
+    if name:
+        plt.title("Displaying targets: " + name)
+    else:
+        plt.title("Image with targets on top")  # I love title
 
     for i in range(heatmap.shape[2]):
+
         cs = [(0, 0, 0, 0), joint_colors[i]]
         color_map = colors.LinearSegmentedColormap.from_list("cmap", cs)
 
         heatmap_data = heatmap[:, :, i]
-        # heatmap_data = resize(heatmap_data, (480, 720))
+
+        if full_res:
+            heatmap_data = resize(heatmap_data, (480, 720))
 
         # Mask image to show only joint location
-        heatmap_data[heatmap_data < 0.01] = 0
-        heatmap_data = heatmap_data / np.max(heatmap_data.numpy())
+        heatmap_data[heatmap_data < heatmap_data.max()-(heatmap_data.max()-heatmap_data.min())*0.55]  #Better threshold for last model iteration
+        heatmap_data = heatmap_data / np.max(heatmap_data)
         plt.imshow(heatmap_data, cmap=color_map)
 
-        # If name and save_dir are defined, save to location:
-        if name and save_dir:
-            save_path = f"{save_dir}/images/joint_{i}/{name}.png"
-            mkdir(save_path, path_is_file=True)
-            plt.savefig(save_path)
-    plt.title("Image with targets on top")  # I love title
-    plt.show()
+    # If name and save_dir are defined, save to location:
+    if name and save_dir:
+        save_path = f"{save_dir}/images/{name}.png"
+        mkdir(save_path, path_is_file=True)
+        plt.savefig(save_path)
+
+    plt.cla()
+    plt.clf() ## Clearing axes and current figure should help image saving more efficient.
 
 
 def main():

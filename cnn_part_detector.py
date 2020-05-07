@@ -3,9 +3,12 @@ from torch import nn
 import torch
 import torchvision
 from torch.nn import functional as F
+from torch.autograd import Variable
 from data import load_train_data, load_test_data, to_dataloader, viz_sample
 import config as cfg
 import utils
+import numpy as np
+import os
 
 
 class CrossELoss(nn.Module):
@@ -27,90 +30,118 @@ class CrossELoss(nn.Module):
 
             loss += nn.functional.binary_cross_entropy_with_logits(heatmap_pred, heatmap_gt)
 
-        return loss / num_joints
+        return loss
 
 
 class PoseDetector(pl.LightningModule):
 
-    def __init__(self):
+    def __init__(self, use_spatial_model=True, gpu_cuda = True):
         super(PoseDetector, self).__init__()
 
         self.model_size = cfg.MODEL_SIZE
         self.output_shape = (60, 90, 10)
+        self.use_spatial_model = use_spatial_model
+        self.gpu_cuda = gpu_cuda
+        self._test_dataloader = self.test_dataloader()
+
+        # Model joints:
+        self.joint_names = ['lsho', 'lelb', 'lwri', 'rsho', 'relb', 'rwri', 'lhip', 'rhip', 'nose', 'torso']
+        self.joint_dependence = {}
+        ## Assuming there is co-dependence between EVERY joint pairs
+        for joint in self.joint_names:
+            self.joint_dependence[joint] = [joint_cond for joint_cond in self.joint_names if joint_cond != joint]
+
+        ## Initializing pairwise energies and bias between Joints
+        self.pairwise_energies, self.pairwise_biases = {}, {}
+        for joint in self.joint_names:#[:n_joints]:
+            for cond_joint in self.joint_dependence[joint]:
+                #TODO : manage dynamic sizing (in-place of 120,180)
+                joint_key = joint + '_' + cond_joint
+                if self.gpu_cuda:
+                    self.pairwise_energies[joint_key] = nn.Parameter(torch.ones([1,119,179,1], dtype=torch.float32, requires_grad=True, device="cuda")/(119*179))
+                    self.pairwise_biases[joint_key] = nn.Parameter(torch.ones([1,60,90,1], dtype=torch.float32, requires_grad=True, device="cuda")*1e-5)
+                else:
+                    self.pairwise_energies[joint_key] = nn.Parameter(torch.ones([1,119,179,1], dtype=torch.float32, requires_grad=True)/(119*179))
+                    self.pairwise_biases[joint_key] = nn.Parameter(torch.ones([1,60,90,1], dtype=torch.float32, requires_grad=True)*1e-5)
+
+        #This line is needed in order to pass all pairwise parameters to the optimizer
+        self.pairwise_parameters = nn.ParameterList([self.pairwise_energies[joint_key] for joint_key in self.pairwise_energies.keys()]+[self.pairwise_biases[joint_key] for joint_key in self.pairwise_biases.keys()])
 
         # Layers for full resolution image
         self.fullres_layer1 = nn.Sequential(
             nn.Conv2d(3, self.model_size * 1, 5, stride=1, padding=2),
+            nn.ReLU(),
             nn.BatchNorm2d(self.model_size * 1),
-            nn.MaxPool2d(2, stride=2),
-            nn.ReLU()
+            nn.MaxPool2d(2, stride=2)
         )
 
         self.fullres_layer2 = nn.Sequential(
             nn.Conv2d(self.model_size * 1, self.model_size * 2, 5, stride=1, padding=2),
+            nn.ReLU(),
             nn.BatchNorm2d(self.model_size * 2),
-            nn.MaxPool2d(2, stride=2),
-            nn.ReLU()
+            nn.MaxPool2d(2, stride=2)
         )
 
         self.fullres_layer3 = nn.Sequential(
             nn.Conv2d(self.model_size * 2, self.model_size * 4, 9, stride=1, padding=4),
+            nn.ReLU(),
             nn.BatchNorm2d(self.model_size * 4),
-            nn.MaxPool2d(2, stride=2),
-            nn.ReLU()
+            nn.MaxPool2d(2, stride=2)
         )
 
         # Layers for half resolution image
         self.halfres_layer1 = nn.Sequential(
             nn.Conv2d(3, self.model_size * 1, 5, stride=1, padding=2),
+            nn.ReLU(),
             nn.BatchNorm2d(self.model_size * 1),
-            nn.MaxPool2d(2, stride=2),
-            nn.ReLU()
+            nn.MaxPool2d(2, stride=2)
         )
 
         self.halfres_layer2 = nn.Sequential(
             nn.Conv2d(self.model_size * 1, self.model_size * 2, 5, stride=1, padding=2),
+            nn.ReLU(),
             nn.BatchNorm2d(self.model_size * 2),
-            nn.MaxPool2d(2, stride=2),
-            nn.ReLU()
+            nn.MaxPool2d(2, stride=2)
         )
 
         self.halfres_layer3 = nn.Sequential(
             nn.Conv2d(self.model_size * 2, self.model_size * 4, 9, stride=1, padding=4),
+            nn.ReLU(),
             nn.BatchNorm2d(self.model_size * 4),
-            nn.MaxPool2d(2, stride=2),
-            nn.ReLU()
+            nn.MaxPool2d(2, stride=2)
         )
 
         # Layers for quarter resolution image
         self.quarterres_layer1 = nn.Sequential(
             nn.Conv2d(3, self.model_size * 1, 5, stride=1, padding=2),
+            nn.ReLU(),
             nn.BatchNorm2d(self.model_size * 1),
-            nn.MaxPool2d(2, stride=2),
-            nn.ReLU()
+            nn.MaxPool2d(2, stride=2)
         )
 
         self.quarterres_layer2 = nn.Sequential(
             nn.Conv2d(self.model_size * 1, self.model_size * 2, 5, stride=1, padding=2),
+            nn.ReLU(),
             nn.BatchNorm2d(self.model_size * 2),
-            nn.MaxPool2d(2, stride=2 , padding =1), #Adding padding so upsample dimension fit
-            nn.ReLU()
+            nn.MaxPool2d(2, stride=2 , padding =1) #Adding padding so upsample dimension fit
         )
 
         self.quarterres_layer3 = nn.Sequential(
             nn.Conv2d(self.model_size * 2, self.model_size * 4, 9, stride=1, padding=4),
+            nn.ReLU(),
             nn.BatchNorm2d(self.model_size * 4),
-            nn.MaxPool2d(2, stride=2),
-            nn.ReLU()
+            nn.MaxPool2d(2, stride=2)
         )
 
         # Last common layers
         self.last_layers = nn.Sequential(
             nn.Conv2d(self.model_size * 4, self.model_size * 4, 9, stride=1, padding=4),
-            nn.BatchNorm2d(self.model_size * 4),
             nn.ReLU(),
+            nn.BatchNorm2d(self.model_size * 4),
             nn.Conv2d(self.model_size * 4, self.output_shape[2], 9, stride=1, padding=4)
         )
+
+        ## Upsampling and downsampling
 
         self.conv_downsample = nn.Sequential(
             nn.Conv2d(3, 3, 3, stride=2, padding=1),
@@ -119,7 +150,59 @@ class PoseDetector(pl.LightningModule):
 
         self.conv_upsample = nn.ConvTranspose2d(self.model_size * 4, self.model_size * 4, 3, stride=2, padding=1)
 
+        self.conv1_1 = nn.Conv2d(self.model_size * 4, self.model_size * 4, 1, stride=1, padding=0)
+
+        ## Softplus for spatial model
+        self.softplus = nn.Softplus(beta=5)
+
+        ## Batchnorm for spatial model
+        self.BN_SM = nn.BatchNorm2d(self.output_shape[2])
+
+    def conv_marginal_like(self, prior, likelihood):
+        likelihood_shape = likelihood.shape
+        prior = prior.permute(0,3,1,2)
+        likelihood = likelihood.permute(0,3,1,2)
+        likelihood = torch.flip(likelihood, dims=[2,3])
+
+        marginal = F.conv2d(prior, likelihood)
+        marginal = marginal.permute(1,2,3,0)
+        assert marginal.shape == likelihood_shape
+        return marginal
+
+    ## Spatial model
+    def spatial_model(self, part_detector_pred, dissect = False):
+        shp = part_detector_pred.shape
+        hm_logit = torch.stack([(F.softmax(part_detector_pred[i,:,:,:].reshape(shp[1],-1), dim=1)).reshape(shp[1],shp[2],shp[3]) for i in range(shp[0])])
+        hm_logit = self.BN_SM(hm_logit)
+        hm_logit = hm_logit.permute(0,2,3,1)
+        if dissect:
+            marginal_energies = {}
+
+        heat_map_hat = []
+        for joint_id, joint_name in enumerate(self.joint_names):
+            hm = hm_logit[:, :, :, joint_id:joint_id + 1]
+            #marginal_energy = torch.log(self.softplus(hm) + 1e-6)  #1e-6: numerical stability
+            marginal_energy = 0
+            for cond_joint in self.joint_dependence[joint_name]:
+                #cond_joint_id = np.where(np.array(self.joint_names) == np.array(cond_joint))[0][0]
+                cond_joint_id = self.joint_names.index(cond_joint)
+                prior = self.softplus(self.pairwise_energies[joint_name + '_' + cond_joint])
+                likelihood = self.softplus(hm_logit[:, :, :, cond_joint_id:cond_joint_id + 1])
+                bias = self.softplus(self.pairwise_biases[joint_name + '_' + cond_joint])
+                marginal_energy_part = torch.log(self.conv_marginal_like(prior, likelihood) + bias + 1e-6) #1e-6: numerical stability
+                marginal_energy += marginal_energy_part
+                if dissect:
+                    marginal_energies[joint_name + '_' + cond_joint] = marginal_energy_part
+            shp = marginal_energy.shape
+            marginal_energy = hm * F.softmax(marginal_energy.reshape(shp[0],-1), dim=1).reshape(shp) ## Test
+            heat_map_hat.append(marginal_energy)
+        if dissect:
+            return marginal_energies
+        else:
+            return torch.stack(heat_map_hat, dim=3)[:,:,:,:,0].permute(0,3,1,2)
+
     def forward(self, inputs):
+
         fullres = inputs
         halfres = self.conv_downsample(fullres)
         quarterres = self.conv_downsample(halfres)
@@ -138,14 +221,18 @@ class PoseDetector(pl.LightningModule):
         quarterres = self.quarterres_layer2(quarterres)
         quarterres = self.quarterres_layer3(quarterres)
         quarterres = self.conv_upsample(quarterres, output_size=halfres_size)
-        quarterres = nn.Conv2d(self.model_size * 4, self.model_size * 4, 1, stride=1, padding=0)(quarterres)
+        quarterres = self.conv1_1(quarterres)
         quarterres = self.conv_upsample(quarterres, output_size=fullres.size())
 
         output = fullres + halfres + quarterres
         output /= 3  # Take mean of sum
 
         output = self.last_layers(output)
-        return output
+
+        if self.use_spatial_model:
+            output_sm = self.spatial_model(output)
+
+        return output, output_sm
 
     def train_dataloader(self):
         # Load data and create a DataLoader
@@ -157,7 +244,7 @@ class PoseDetector(pl.LightningModule):
     def val_dataloader(self):
         # Load data and create a DataLoader
         X_val, y_val = load_test_data()
-        val_dataloader = to_dataloader(X_val, y_val[:, :, :, 0:self.output_shape[2]], batch_size=cfg.BATCH_SIZE)
+        val_dataloader = to_dataloader(X_val, y_val[:, :, :, 0:self.output_shape[2]], batch_size=cfg.BATCH_SIZE, shuffle = False)
         return val_dataloader
 
     def test_dataloader(self):
@@ -169,27 +256,43 @@ class PoseDetector(pl.LightningModule):
     def configure_optimizers(self):
         # Use Adam optimizer to train model
         optimizer = torch.optim.Adam(self.parameters(), lr=cfg.LEARNING_RATE)
-        return optimizer
+        #scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', patience=4)
+        scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.1)
+        return [optimizer], [scheduler]
+        #return optimizer
 
     def loss(self, preds, targets):
+
+        #loss_fn = JointsMSELoss()
+
         loss_fn = CrossELoss()
-        loss = loss_fn(preds, targets)
-        return loss
+        loss_cnn = loss_fn(preds[0], targets)
+        if self.use_spatial_model:
+            loss_sm = loss_fn(preds[1], targets)
+        else :
+            loss_sm = 0
+        #loss = loss_cnn + loss_sm
+        return [loss_cnn , loss_sm]
 
     def training_step(self, batch, batch_idx):
         # Forward pass of the training and loss computation
         inputs, targets = batch
         preds = self.forward(inputs)
         loss = self.loss(preds, targets)
-        logs = {"train_loss": loss}
-        return {"loss": loss, "log": logs}
+        logs = {"train_loss": loss[0] + loss[1],
+                "CNN_train_loss": loss[0],
+                "SM_train_loss": loss[1]}
+        return {"loss": loss[0]+loss[1], "log": logs}
 
     def validation_step(self, batch, batch_idx):
         # Forward pass of the validation
         images, targets = batch
         preds = self.forward(images)
         loss = self.loss(preds, targets)
-        return {'val_loss': loss}
+        logs = {"val_loss": loss[0] + loss[1],
+                "CNN_val_loss": loss[0],
+                "SM_val_loss": loss[1]}
+        return {'val_loss': loss[0]+loss[1], "log": logs}
 
     def validation_end(self, outputs):
         # Log validation loss to tensorboard
@@ -202,6 +305,7 @@ class PoseDetector(pl.LightningModule):
         inputs, targets = val_batch
         preds = self.forward(inputs)
         loss = self.loss(preds, targets)
+        loss = loss[0]+loss[1]
         return {'test_loss': loss}
 
     def test_epoch_end(self, outputs):
@@ -212,19 +316,36 @@ class PoseDetector(pl.LightningModule):
 
     def on_epoch_end(self):
         # Test after each epoch on sample image and save image to output dir
-        images, targets = next(iter(self.train_dataloader))
-        preds = self.forward(images).detach() * 100
+        images, targets = next(iter(self._test_dataloader))
+        if self.gpu_cuda:
+            images = images.to("cuda")
+        predictions = self.forward(images)
+        #preds = torch.stack([F.softmax(preds[i,:,:,:], dim=1) for i in range(preds.shape[0])]) * 100
+        if self.gpu_cuda:
+            predictions = predictions[0].cpu(), predictions[1].cpu()
+            images = images.cpu()
 
-        save_folder = self.logger.log_dir
+        # Save output images of cnn part detector as well as output of spatial model
+        names = ["cnn", "spatial"]
+        for i, prediction in enumerate(predictions):
+            preds = prediction.detach()
+            shp = preds.shape
+            preds = torch.stack([(F.softmax(preds[j,:,:,:].reshape(shp[1],-1), dim=1)).reshape(shp[1],shp[2],shp[3]) for j in range(shp[0])]) * 100
 
-        for i in range(2):
-            image, target, pred = images[i], targets[i], preds[i]
-            viz_sample(image.permute(1, 2, 0), target.permute(1, 2, 0), f"epoch_{self.current_epoch}_sample_{i}_train", save_dir=save_folder)
-            viz_sample(image.permute(1, 2, 0), pred.permute(1, 2, 0), f"epoch_{self.current_epoch}_sample_{i}_preds", save_dir=save_folder)
+            save_folder = self.logger.log_dir
+
+            for k in range(2):
+                image, target, pred = images[k], targets[k], preds[k]
+                viz_sample(image.permute(1, 2, 0), target.permute(1, 2, 0), f"{names[i]}_epoch_{self.current_epoch}_sample_{k}_train", save_dir=save_folder, full_res=True)
+                viz_sample(image.permute(1, 2, 0), pred.permute(1, 2, 0), f"{names[i]}_epoch_{self.current_epoch}_sample_{k}_preds", save_dir=save_folder, full_res=True)
 
 
 if __name__ == "__main__":
     # Train model
-    model = PoseDetector()
-    trainer = pl.Trainer(max_epochs=cfg.EPOCHS, row_log_interval=1)
+    model = PoseDetector(gpu_cuda = True)
+    checkpoint_callback = pl.callbacks.ModelCheckpoint(filepath=os.getcwd(), save_top_k = 1, period = 10)
+    if model.gpu_cuda:
+        trainer = pl.Trainer(max_epochs=cfg.EPOCHS, row_log_interval=1, checkpoint_callback=checkpoint_callback, gpus=1)
+    else:
+        trainer = pl.Trainer(max_epochs=cfg.EPOCHS, checkpoint_callback=checkpoint_callback, row_log_interval=1)
     trainer.fit(model)
